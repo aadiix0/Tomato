@@ -118,30 +118,59 @@ export function useTomatoStore() {
   const activeTaskIdRef = useRef<string | null>(activeTaskId);
   activeTaskIdRef.current = activeTaskId;
 
+  const [isHydrated, setIsHydrated] = useState<boolean>(false);
+
   // Hydrate from Electron PC filesystem or IndexedDB if localStorage was missing or behind
   useEffect(() => {
     let mounted = true;
-    void loadPersistedState().then((persisted) => {
-      if (!mounted || !persisted) return;
-      const currentCount = topics.length;
-      const persistedCount = Array.isArray(persisted.topics) ? persisted.topics.length : 0;
-      const persistedTime = persisted.lastModified || 0;
-      if (
-        (currentCount <= 1 && persistedCount > 1) ||
-        persistedTime > lastModifiedRef.current + 1000
-      ) {
-        setTopics(persisted.topics);
-        setStats(Array.isArray(persisted.stats) ? persisted.stats : []);
-        setTasks(Array.isArray(persisted.tasks) ? persisted.tasks : []);
-        if (persisted.settings) {
-          setSettings((prev) => ({ ...prev, ...persisted.settings }));
+    void loadPersistedState()
+      .then((persisted) => {
+        if (!mounted || !persisted) return;
+        const currentCount = topics.length;
+        const persistedCount = Array.isArray(persisted.topics) ? persisted.topics.length : 0;
+        const persistedTime = persisted.lastModified || 0;
+        const shouldHydrate =
+          lastModifiedRef.current === 0 ||
+          (currentCount <= 1 && persistedCount > 1) ||
+          persistedTime > lastModifiedRef.current;
+
+        if (shouldHydrate) {
+          const restoredTopics =
+            Array.isArray(persisted.topics) && persisted.topics.length > 0
+              ? persisted.topics
+              : [DEFAULT_TOPIC];
+          const restoredTopicId =
+            typeof persisted.currentTopicId === 'number' &&
+            restoredTopics.some((t) => t.id === persisted.currentTopicId)
+              ? persisted.currentTopicId
+              : restoredTopics[0].id;
+          const activeTopic =
+            restoredTopics.find((t) => t.id === restoredTopicId) ?? restoredTopics[0];
+
+          setTopics(restoredTopics);
+          setStats(Array.isArray(persisted.stats) ? persisted.stats : []);
+          setTasks(Array.isArray(persisted.tasks) ? persisted.tasks : []);
+          if (persisted.settings) {
+            setSettings((prev) => ({ ...prev, ...persisted.settings }));
+          }
+          setCurrentTopicId(restoredTopicId);
+          setTimerState((curr) =>
+            curr.timerRunning
+              ? curr
+              : {
+                  ...buildIntervalState(curr, activeTopic, 0, curr.infiniteFocus),
+                  timerRunning: false,
+                  showBrandTitle: true,
+                }
+          );
+          lastModifiedRef.current = persistedTime || Date.now();
         }
-        if (persisted.currentTopicId) {
-          setCurrentTopicId(persisted.currentTopicId);
+      })
+      .finally(() => {
+        if (mounted) {
+          setIsHydrated(true);
         }
-        lastModifiedRef.current = persistedTime;
-      }
-    });
+      });
     return () => {
       mounted = false;
     };
@@ -193,6 +222,7 @@ export function useTomatoStore() {
 
   // Multi-tier persistence: localStorage + IndexedDB + Electron PC hard drive
   useEffect(() => {
+    if (!isHydrated) return;
     const now = Date.now();
     lastModifiedRef.current = now;
     persistFullState({
@@ -204,7 +234,7 @@ export function useTomatoStore() {
       tasks,
       settings,
     });
-  }, [topics, currentTopicId, stats, tasks, settings]);
+  }, [isHydrated, topics, currentTopicId, stats, tasks, settings]);
 
   const sessionActive = useMemo(() => {
     const expectedStart = timerState.infiniteFocus

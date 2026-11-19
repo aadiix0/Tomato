@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } = require('electron');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +7,43 @@ let mainWindow = null;
 let tray = null;
 let staticServer = null;
 let isQuitting = false;
+
+const PREFERRED_PORTS = [47831, 47832, 47833, 47834, 47835, 0];
+
+function getDataFilePath() {
+  return path.join(app.getPath('userData'), 'zonein-data.json');
+}
+
+function registerStorageIpcHandlers() {
+  ipcMain.handle('zonein-storage:path', () => getDataFilePath());
+
+  ipcMain.handle('zonein-storage:load', async () => {
+    try {
+      const filePath = getDataFilePath();
+      if (!fs.existsSync(filePath)) {
+        return { success: true, data: null };
+      }
+      const data = await fs.promises.readFile(filePath, 'utf-8');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, data: null, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('zonein-storage:save', async (_event, jsonData) => {
+    try {
+      const filePath = getDataFilePath();
+      const dir = path.dirname(filePath);
+      await fs.promises.mkdir(dir, { recursive: true });
+      const tmpPath = `${filePath}.tmp`;
+      await fs.promises.writeFile(tmpPath, String(jsonData), 'utf-8');
+      await fs.promises.rename(tmpPath, filePath);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -22,7 +59,7 @@ const MIME_TYPES = {
 };
 
 function startLocalServer(distDir) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const reqUrl = (req.url || '/').split('?')[0];
       let filePath = path.join(distDir, reqUrl === '/' ? 'index.html' : reqUrl);
@@ -33,10 +70,24 @@ function startLocalServer(distDir) {
       res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
       fs.createReadStream(filePath).pipe(res);
     });
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      resolve({ server, port: address.port });
-    });
+
+    let portIdx = 0;
+    const tryListen = () => {
+      const portToTry = PREFERRED_PORTS[portIdx++];
+      server.once('error', (err) => {
+        if (err.code === 'EADDRINUSE' && portIdx < PREFERRED_PORTS.length) {
+          tryListen();
+        } else {
+          reject(err);
+        }
+      });
+      server.listen(portToTry, '127.0.0.1', () => {
+        const address = server.address();
+        resolve({ server, port: address.port });
+      });
+    };
+
+    tryListen();
   });
 }
 
@@ -59,6 +110,7 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -116,6 +168,7 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerStorageIpcHandlers();
   void createWindow();
   app.on('activate', () => {
     if (mainWindow) {

@@ -16,6 +16,7 @@ import {
 import {
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
   Line,
   LineChart,
@@ -80,6 +81,7 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
   // Empty array means "All topics"
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
   const [hoveredCell, setHoveredCell] = useState<{ label: string; ms: number } | null>(null);
+  const [distributionView, setDistributionView] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [weeklyTimeFrame, setWeeklyTimeFrame] = useState<'all' | '12w' | '4w'>('all');
   const [weeklyMetric, setWeeklyMetric] = useState<'avg' | 'total'>('avg');
   const [selectedTrendDow, setSelectedTrendDow] = useState<number | null>(null);
@@ -192,6 +194,67 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
   const lastWeekAvg = avgMs(lastWeekData, 7);
   const lastMonthAvg = avgMs(lastMonthData, 30);
   const lastYearAvg = avgMs(lastYearData, 365);
+
+  const focusDistribution = useMemo(() => {
+    const dailyData = [
+      {
+        label: 'Morning',
+        fullLabel: 'Morning (00:00–12:00)',
+        minutes: Math.round(todaySummary.q1 / 60000),
+        ms: todaySummary.q1,
+        color: 'var(--m3-primary)',
+      },
+      {
+        label: 'Afternoon',
+        fullLabel: 'Afternoon (12:00–16:00)',
+        minutes: Math.round(todaySummary.q2 / 60000),
+        ms: todaySummary.q2,
+        color: 'var(--m3-tertiary)',
+      },
+      {
+        label: 'Evening',
+        fullLabel: 'Evening (16:00–20:00)',
+        minutes: Math.round(todaySummary.q3 / 60000),
+        ms: todaySummary.q3,
+        color: 'var(--m3-secondary)',
+      },
+      {
+        label: 'Night',
+        fullLabel: 'Night (20:00–00:00)',
+        minutes: Math.round(todaySummary.q4 / 60000),
+        ms: todaySummary.q4,
+        color: 'var(--m3-outline)',
+      },
+    ];
+
+    const dailyPeak = dailyData.reduce(
+      (best, item) => (item.ms > best.ms ? item : best),
+      dailyData[0]
+    );
+
+    const weeklyTotal = lastWeekData.reduce((sum, d) => sum + d.ms, 0);
+    const weeklyPeak = lastWeekData.reduce(
+      (best, item) => (item.ms > best.ms ? item : best),
+      lastWeekData[0]
+    );
+
+    const monthlyTotal = lastMonthData.reduce((sum, d) => sum + d.ms, 0);
+    const monthlyPeak = lastMonthData.reduce(
+      (best, item) => (item.ms > best.ms ? item : best),
+      lastMonthData[0]
+    );
+    const monthlyActiveDays = lastMonthData.filter((d) => d.ms > 0).length;
+
+    return {
+      dailyData,
+      dailyPeak: dailyPeak && dailyPeak.ms > 0 ? dailyPeak : null,
+      weeklyTotal,
+      weeklyPeak: weeklyPeak && weeklyPeak.ms > 0 ? weeklyPeak : null,
+      monthlyTotal,
+      monthlyPeak: monthlyPeak && monthlyPeak.ms > 0 ? monthlyPeak : null,
+      monthlyActiveDays,
+    };
+  }, [todaySummary, lastWeekData, lastMonthData]);
 
   const lifetimeTotal = useMemo(
     () => filteredStats.reduce((sum, s) => sum + totalFocusOfStat(s), 0),
@@ -1314,19 +1377,70 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
           <h2 className="text-lg font-bold px-2">Today</h2>
           <div className="grid grid-cols-2 gap-2.5">
             <div
-              className="rounded-[24px] p-4"
+              className="rounded-[24px] p-4 flex items-center justify-between gap-2"
               style={{
                 backgroundColor: 'var(--m3-primary-container)',
                 color: 'var(--m3-on-primary-container)',
               }}
             >
-              <div className="text-sm font-semibold opacity-90">Focus</div>
-              <div className="text-3xl font-extrabold tabular-nums mt-1">
-                {millisecondsToHoursMinutes(todaySummary.focus)}
+              <div className="min-w-0">
+                <div className="text-sm font-semibold opacity-90">Focus</div>
+                <div className="text-3xl font-extrabold tabular-nums mt-1">
+                  {millisecondsToHoursMinutes(todaySummary.focus)}
+                </div>
+                {focusGoal > 0 && (
+                  <div className="text-[11px] font-semibold opacity-70 mt-0.5 tabular-nums">
+                    Goal: {millisecondsToHoursMinutes(focusGoal)}
+                  </div>
+                )}
               </div>
+              {focusGoal > 0 && (() => {
+                const ratio = Math.min(1, Math.max(0, todaySummary.focus / focusGoal));
+                const pct = Math.min(100, Math.round(ratio * 100));
+                const ringSize = 54;
+                const stroke = 4.5;
+                const r = (ringSize - stroke) / 2;
+                const circ = 2 * Math.PI * r;
+                const offset = circ * (1 - ratio);
+                return (
+                  <div
+                    className="relative shrink-0 flex items-center justify-center"
+                    style={{ width: ringSize, height: ringSize }}
+                    title={`Daily focus goal: ${pct}% (${millisecondsToHoursMinutes(todaySummary.focus)} / ${millisecondsToHoursMinutes(focusGoal)})`}
+                    aria-label={`Daily focus goal ${pct}% achieved`}
+                  >
+                    <svg width={ringSize} height={ringSize} className="-rotate-90">
+                      <circle
+                        cx={ringSize / 2}
+                        cy={ringSize / 2}
+                        r={r}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeOpacity={0.2}
+                        strokeWidth={stroke}
+                      />
+                      <circle
+                        cx={ringSize / 2}
+                        cy={ringSize / 2}
+                        r={r}
+                        fill="none"
+                        stroke="var(--m3-primary)"
+                        strokeWidth={stroke}
+                        strokeLinecap="round"
+                        strokeDasharray={circ}
+                        strokeDashoffset={offset}
+                        style={{ transition: 'stroke-dashoffset 450ms ease' }}
+                      />
+                    </svg>
+                    <span className="absolute text-[11px] font-extrabold tabular-nums opacity-90">
+                      {pct}%
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
             <div
-              className="rounded-[24px] p-4"
+              className="rounded-[24px] p-4 flex flex-col justify-center"
               style={{
                 backgroundColor: 'var(--m3-tertiary-container)',
                 color: 'var(--m3-on-tertiary-container)',
@@ -1337,6 +1451,302 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
                 {millisecondsToHoursMinutes(todaySummary.breakTime)}
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Interactive Focus Distribution (Daily / Weekly / Monthly) */}
+        <section
+          className="rounded-[24px] p-5 space-y-4"
+          style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              <BarChart3 size={20} style={{ color: 'var(--m3-primary)' }} />
+              <div>
+                <h2 className="text-xl font-bold leading-tight">Focus Distribution</h2>
+                <p className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  {distributionView === 'daily'
+                    ? "Today's time-of-day breakdown"
+                    : distributionView === 'weekly'
+                      ? 'Last 7 days focus distribution'
+                      : 'Last 30 days focus distribution'}
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="flex items-center p-1 rounded-full text-xs font-bold"
+              style={{ backgroundColor: 'var(--m3-surface-container-high)' }}
+              role="tablist"
+              aria-label="Focus distribution timeframe"
+            >
+              {(
+                [
+                  { id: 'daily', label: 'Daily' },
+                  { id: 'weekly', label: 'Weekly' },
+                  { id: 'monthly', label: 'Monthly' },
+                ] as const
+              ).map((tab) => {
+                const active = distributionView === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setDistributionView(tab.id)}
+                    className="px-3 py-1 rounded-full cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: active ? 'var(--m3-primary)' : 'transparent',
+                      color: active ? 'var(--m3-on-primary)' : 'var(--m3-on-surface-variant)',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Summary metrics for selected view */}
+          <div className="grid grid-cols-3 gap-2">
+            <div
+              className="p-3 rounded-2xl"
+              style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+            >
+              <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                Total Focus
+              </div>
+              <div className="text-base sm:text-lg font-extrabold tabular-nums mt-0.5">
+                {millisecondsToHoursMinutes(
+                  distributionView === 'daily'
+                    ? todaySummary.focus
+                    : distributionView === 'weekly'
+                      ? focusDistribution.weeklyTotal
+                      : focusDistribution.monthlyTotal
+                )}
+              </div>
+            </div>
+
+            <div
+              className="p-3 rounded-2xl"
+              style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+            >
+              <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                {distributionView === 'daily' ? 'Break Time' : 'Daily Avg'}
+              </div>
+              <div className="text-base sm:text-lg font-extrabold tabular-nums mt-0.5">
+                {millisecondsToHoursMinutes(
+                  distributionView === 'daily'
+                    ? todaySummary.breakTime
+                    : distributionView === 'weekly'
+                      ? lastWeekAvg
+                      : lastMonthAvg
+                )}
+              </div>
+            </div>
+
+            <div
+              className="p-3 rounded-2xl"
+              style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+            >
+              <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                {distributionView === 'daily'
+                  ? 'Peak Window'
+                  : distributionView === 'weekly'
+                    ? 'Peak Day'
+                    : 'Active Days'}
+              </div>
+              <div className="text-base sm:text-lg font-extrabold tabular-nums mt-0.5 truncate">
+                {distributionView === 'daily'
+                  ? (focusDistribution.dailyPeak?.label ?? '—')
+                  : distributionView === 'weekly'
+                    ? (focusDistribution.weeklyPeak?.label ?? '—')
+                    : `${focusDistribution.monthlyActiveDays} / 30`}
+              </div>
+            </div>
+          </div>
+
+          {/* Recharts BarChart */}
+          <div className="h-56 w-full pt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              {distributionView === 'daily' ? (
+                <BarChart
+                  data={focusDistribution.dailyData}
+                  margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    vertical={false}
+                    stroke="var(--m3-outline-variant)"
+                    strokeOpacity={0.35}
+                    strokeDasharray="3 3"
+                  />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fontWeight: 600, fill: 'var(--m3-on-surface-variant)' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'var(--m3-outline)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    unit="m"
+                  />
+                  <Tooltip
+                    formatter={(val: number) => [millisecondsToHoursMinutes(Number(val) * 60000), 'Focus']}
+                    labelFormatter={(label: string) => {
+                      const found = focusDistribution.dailyData.find((d) => d.label === label);
+                      return found ? found.fullLabel : label;
+                    }}
+                    contentStyle={{
+                      backgroundColor: 'var(--m3-surface-container-high)',
+                      border: 'none',
+                      borderRadius: 16,
+                      color: 'var(--m3-on-surface)',
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar dataKey="minutes" radius={[8, 8, 3, 3]} maxBarSize={48}>
+                    {focusDistribution.dailyData.map((entry) => (
+                      <Cell
+                        key={`daily-${entry.label}`}
+                        fill={entry.minutes > 0 ? entry.color : 'var(--m3-surface-container-high)'}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              ) : distributionView === 'weekly' ? (
+                <BarChart
+                  data={lastWeekData}
+                  margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    vertical={false}
+                    stroke="var(--m3-outline-variant)"
+                    strokeOpacity={0.35}
+                    strokeDasharray="3 3"
+                  />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fontWeight: 600, fill: 'var(--m3-on-surface-variant)' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'var(--m3-outline)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    unit="m"
+                  />
+                  <Tooltip
+                    formatter={(val: number) => [millisecondsToHoursMinutes(Number(val) * 60000), 'Focus']}
+                    labelFormatter={(_label: string, payload: readonly { payload?: { date?: string; label?: string } }[]) => {
+                      const item = payload?.[0]?.payload;
+                      return item?.date ? `${item.label} · ${item.date}` : _label;
+                    }}
+                    contentStyle={{
+                      backgroundColor: 'var(--m3-surface-container-high)',
+                      border: 'none',
+                      borderRadius: 16,
+                      color: 'var(--m3-on-surface)',
+                      fontSize: 12,
+                    }}
+                  />
+                  {goalMinutes > 0 && (
+                    <ReferenceLine
+                      y={goalMinutes}
+                      stroke="var(--m3-tertiary)"
+                      strokeDasharray="4 4"
+                    />
+                  )}
+                  <Bar dataKey="minutes" radius={[8, 8, 3, 3]} maxBarSize={36}>
+                    {lastWeekData.map((entry) => {
+                      const isPeak =
+                        focusDistribution.weeklyPeak &&
+                        entry.date === focusDistribution.weeklyPeak.date;
+                      return (
+                        <Cell
+                          key={`weekly-${entry.date}`}
+                          fill={
+                            entry.minutes === 0
+                              ? 'var(--m3-surface-container-high)'
+                              : isPeak
+                                ? 'var(--m3-primary)'
+                                : 'var(--m3-primary-container)'
+                          }
+                        />
+                      );
+                    })}
+                  </Bar>
+                </BarChart>
+              ) : (
+                <BarChart
+                  data={lastMonthData}
+                  margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    vertical={false}
+                    stroke="var(--m3-outline-variant)"
+                    strokeOpacity={0.35}
+                    strokeDasharray="3 3"
+                  />
+                  <XAxis
+                    dataKey="label"
+                    interval={4}
+                    tick={{ fontSize: 10, fontWeight: 600, fill: 'var(--m3-on-surface-variant)' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'var(--m3-outline)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    unit="m"
+                  />
+                  <Tooltip
+                    formatter={(val: number) => [millisecondsToHoursMinutes(Number(val) * 60000), 'Focus']}
+                    labelFormatter={(_label: string, payload: readonly { payload?: { date?: string } }[]) => {
+                      const item = payload?.[0]?.payload;
+                      return item?.date ?? _label;
+                    }}
+                    contentStyle={{
+                      backgroundColor: 'var(--m3-surface-container-high)',
+                      border: 'none',
+                      borderRadius: 16,
+                      color: 'var(--m3-on-surface)',
+                      fontSize: 12,
+                    }}
+                  />
+                  {goalMinutes > 0 && (
+                    <ReferenceLine
+                      y={goalMinutes}
+                      stroke="var(--m3-tertiary)"
+                      strokeDasharray="4 4"
+                    />
+                  )}
+                  <Bar dataKey="minutes" radius={[4, 4, 2, 2]}>
+                    {lastMonthData.map((entry) => {
+                      const isPeak =
+                        focusDistribution.monthlyPeak &&
+                        entry.date === focusDistribution.monthlyPeak.date;
+                      return (
+                        <Cell
+                          key={`monthly-${entry.date}`}
+                          fill={
+                            entry.minutes === 0
+                              ? 'var(--m3-surface-container-high)'
+                              : isPeak
+                                ? 'var(--m3-primary)'
+                                : 'var(--m3-primary-container)'
+                          }
+                        />
+                      );
+                    })}
+                  </Bar>
+                </BarChart>
+              )}
+            </ResponsiveContainer>
           </div>
         </section>
 

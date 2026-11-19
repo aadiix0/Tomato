@@ -1,5 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BarChart2, BellOff, CheckCircle2, Cloud, ListTodo, Settings, Timer } from 'lucide-react';
+import {
+  BarChart2,
+  BellOff,
+  CheckCircle2,
+  Cloud,
+  GripHorizontal,
+  ListTodo,
+  Maximize2,
+  Pause,
+  PictureInPicture2,
+  Play,
+  Settings,
+  SkipForward,
+  Timer,
+} from 'lucide-react';
 import { useTomatoStore } from './store/useTomatoStore';
 import { TimerScreen } from './components/TimerScreen';
 import { TasksScreen } from './components/TasksScreen';
@@ -31,6 +45,15 @@ export function App() {
     open: false,
   });
   const [aodMode, setAodMode] = useState(false);
+  const [miniTimerMode, setMiniTimerMode] = useState(false);
+  const [miniPos, setMiniPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragStateRef = useRef<{ dragging: boolean; startX: number; startY: number; origX: number; origY: number }>({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    origX: 0,
+    origY: 0,
+  });
   const [celebration, setCelebration] = useState<{
     title: string;
     subtitle?: string;
@@ -337,7 +360,7 @@ export function App() {
     store.currentTopic.name,
   ]);
 
-  const handleOpenPiP = useCallback(async () => {
+  const handleOpenExternalPiP = useCallback(async () => {
     const dpip = (window as unknown as {
       documentPictureInPicture?: {
         requestWindow: (opts: { width: number; height: number }) => Promise<Window>;
@@ -345,7 +368,7 @@ export function App() {
     }).documentPictureInPicture;
 
     if (!dpip) {
-      setPipNotice('Floating Mini-Timer requires Chrome or Edge desktop.');
+      setPipNotice('Pop-out window requires Chrome or Edge desktop.');
       window.setTimeout(() => setPipNotice(null), 3500);
       return;
     }
@@ -404,10 +427,15 @@ export function App() {
 
       pipWin.document.body.append(label, time, btn);
     } catch {
-      setPipNotice('Could not open Floating Mini-Timer.');
+      setPipNotice('Pop-out window is unavailable in this view. Using in-app Mini-Timer.');
       window.setTimeout(() => setPipNotice(null), 3000);
     }
   }, [store]);
+
+  const handleOpenPiP = useCallback(() => {
+    setMiniPos({ x: 0, y: 0 });
+    setMiniTimerMode(true);
+  }, []);
 
   const handleCompleteTask = useCallback(
     (taskId: string) => {
@@ -488,8 +516,8 @@ export function App() {
         </div>
       )}
       <div className="relative z-10 min-h-screen flex flex-col">
-        {!aodMode && (
-          <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
+        {!aodMode && !miniTimerMode && (
+          <div className="fixed bottom-5 right-4 z-40 flex items-center gap-2">
             <button
               type="button"
               onClick={() => {
@@ -539,7 +567,7 @@ export function App() {
             <span>{toastNotice.message}</span>
           </div>
         )}
-      {activeTab === 'timer' && (
+      {!miniTimerMode && activeTab === 'timer' && (
         <TimerScreen
           timerState={store.timerState}
           topics={store.topics}
@@ -580,7 +608,7 @@ export function App() {
         />
       )}
 
-      {activeTab === 'tasks' && (
+      {!miniTimerMode && activeTab === 'tasks' && (
         <TasksScreen
           tasks={store.tasks}
           topics={store.topics}
@@ -599,7 +627,7 @@ export function App() {
         />
       )}
 
-      {activeTab === 'stats' && (
+      {!miniTimerMode && activeTab === 'stats' && (
         <StatsScreen
           stats={store.stats}
           topics={store.topics}
@@ -611,7 +639,7 @@ export function App() {
         />
       )}
 
-      {activeTab === 'settings' && (
+      {!miniTimerMode && activeTab === 'settings' && (
         <SettingsScreen
           settings={store.settings}
           topics={store.topics}
@@ -661,7 +689,7 @@ export function App() {
       )}
 
       {/* Floating Material 3 Expressive Bottom Toolbar (Compact Icon Dock, Expands on Hover) */}
-      {!aodMode && (
+      {!aodMode && !miniTimerMode && (
         <nav
           aria-label="Primary navigation"
           className="group fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 p-1 hover:p-1.5 rounded-full shadow-lg transition-all duration-300"
@@ -741,6 +769,181 @@ export function App() {
             {store.currentTopic.name} · {store.timerState.currentFocusCount}/{store.timerState.totalFocusCount}
           </div>
           <div className="mt-8 text-xs opacity-35">Tap anywhere to exit Always-On Display</div>
+        </div>
+      )}
+
+      {/* Minimized Floating Mini-Timer Mode */}
+      {miniTimerMode && !aodMode && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-4"
+          style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface)' }}
+        >
+          <div
+            className="w-full max-w-[300px] rounded-[28px] p-4 shadow-2xl border select-none backdrop-blur-xl transition-shadow"
+            style={{
+              backgroundColor: 'var(--m3-surface-container-low)',
+              borderColor: 'var(--m3-outline-variant)',
+              color: 'var(--m3-on-surface)',
+              transform: `translate3d(${miniPos.x}px, ${miniPos.y}px, 0)`,
+            }}
+          >
+            {/* Top drag handle & window actions */}
+            <div
+              onPointerDown={(e) => {
+                if ((e.target as HTMLElement).closest('button')) return;
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                dragStateRef.current = {
+                  dragging: true,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  origX: miniPos.x,
+                  origY: miniPos.y,
+                };
+              }}
+              onPointerMove={(e) => {
+                if (!dragStateRef.current.dragging) return;
+                setMiniPos({
+                  x: dragStateRef.current.origX + (e.clientX - dragStateRef.current.startX),
+                  y: dragStateRef.current.origY + (e.clientY - dragStateRef.current.startY),
+                });
+              }}
+              onPointerUp={() => {
+                dragStateRef.current.dragging = false;
+              }}
+              className="flex items-center justify-between gap-2 pb-2 cursor-grab active:cursor-grabbing"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <GripHorizontal size={15} className="opacity-45 shrink-0" />
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{
+                    backgroundColor: isFocus ? 'var(--m3-primary)' : 'var(--m3-tertiary)',
+                  }}
+                />
+                <span className="text-xs font-bold truncate opacity-80">
+                  {store.activeTask ? store.activeTask.title : store.currentTopic.name}
+                </span>
+              </div>
+              <div
+                className="flex items-center gap-1 shrink-0"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {window.self === window.top &&
+                  typeof (window as unknown as { documentPictureInPicture?: unknown }).documentPictureInPicture !== 'undefined' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleOpenExternalPiP();
+                    }}
+                    title="Pop out floating window"
+                    aria-label="Pop out floating window"
+                    className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors cursor-pointer"
+                  >
+                    <PictureInPicture2 size={14} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMiniTimerMode(false);
+                  }}
+                  title="Expand full app"
+                  aria-label="Expand full app"
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors cursor-pointer"
+                >
+                  <Maximize2 size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Compact Countdown */}
+            <div className="text-center py-2">
+              <div className="text-5xl font-extrabold tabular-nums leading-none tracking-tight">
+                {store.timerState.timeStr}
+              </div>
+              <div
+                className="text-[11px] font-semibold mt-1.5 uppercase tracking-wider"
+                style={{ color: isFocus ? 'var(--m3-primary)' : 'var(--m3-tertiary)' }}
+              >
+                {store.timerState.timerMode === 'FOCUS'
+                  ? store.timerState.infiniteFocus
+                    ? 'Infinite Focus'
+                    : `Focus · ${store.timerState.currentFocusCount}/${store.timerState.totalFocusCount}`
+                  : store.timerState.timerMode === 'SHORT_BREAK'
+                    ? 'Short Break'
+                    : 'Long Break'}
+              </div>
+            </div>
+
+            {/* Subtle Progress Bar */}
+            {!store.timerState.infiniteFocus && (
+              <div
+                className="w-full h-1.5 rounded-full overflow-hidden my-2.5"
+                style={{
+                  backgroundColor: isFocus
+                    ? 'var(--m3-secondary-container)'
+                    : 'var(--m3-tertiary-container)',
+                }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, store.progress * 100))}%`,
+                    backgroundColor: isFocus ? 'var(--m3-primary)' : 'var(--m3-tertiary)',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Compact Controls */}
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={store.toggleTimer}
+                aria-label={store.timerState.timerRunning ? 'Pause' : 'Play'}
+                className="h-10 px-6 rounded-full flex items-center justify-center gap-1.5 text-xs font-bold transition-transform active:scale-95 cursor-pointer shadow-xs"
+                style={{
+                  backgroundColor: store.timerState.timerRunning
+                    ? isFocus
+                      ? 'var(--m3-primary)'
+                      : 'var(--m3-tertiary)'
+                    : 'var(--m3-primary-container)',
+                  color: store.timerState.timerRunning
+                    ? isFocus
+                      ? 'var(--m3-on-primary)'
+                      : 'var(--m3-on-tertiary)'
+                    : 'var(--m3-on-primary-container)',
+                }}
+              >
+                {store.timerState.timerRunning ? (
+                  <>
+                    <Pause size={15} fill="currentColor" />
+                    Pause
+                  </>
+                ) : (
+                  <>
+                    <Play size={15} fill="currentColor" />
+                    Start
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={store.skipTimer}
+                aria-label="Skip interval"
+                title="Skip interval"
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--m3-surface-container-high)',
+                  color: 'var(--m3-on-surface-variant)',
+                }}
+              >
+                <SkipForward size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

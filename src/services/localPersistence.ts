@@ -90,7 +90,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
       ...DEFAULT_SETTINGS,
       ...(rawSettings ? JSON.parse(rawSettings) : {}),
     };
-    const lastModified = rawModified ? Number(rawModified) : Date.now();
+    const lastModified = rawModified ? Number(rawModified) : 0;
 
     return {
       version: 2,
@@ -110,7 +110,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
         if (Array.isArray(parsed.topics)) {
           return {
             version: 2,
-            lastModified: parsed.lastModified || Date.now(),
+            lastModified: parsed.lastModified || 0,
             topics: parsed.topics,
             currentTopicId: parsed.currentTopicId || DEFAULT_TOPIC_ID,
             stats: Array.isArray(parsed.stats) ? parsed.stats : [],
@@ -125,7 +125,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
 
     return {
       version: 2,
-      lastModified: Date.now(),
+      lastModified: 0,
       topics: [DEFAULT_TOPIC],
       currentTopicId: DEFAULT_TOPIC_ID,
       stats: [],
