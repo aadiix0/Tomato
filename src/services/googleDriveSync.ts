@@ -55,17 +55,21 @@ export const googleSignOut = async () => {
   cachedAccessToken = null;
 };
 
-const BACKUP_FILE_NAME = 'tomato-backup.json';
+export const getCurrentUser = (): User | null => auth.currentUser;
+
+const BACKUP_FILE_NAME = 'zonein-backup.json';
 
 export interface DriveBackupMeta {
   id: string;
+  name?: string;
   modifiedTime?: string;
+  size?: string;
 }
 
 export async function findDriveBackupFile(accessToken: string): Promise<DriveBackupMeta | null> {
   const query = encodeURIComponent(`name='${BACKUP_FILE_NAME}' and trashed=false`);
   const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name,modifiedTime)&pageSize=1`,
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name,modifiedTime,size)&pageSize=1`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
     }
@@ -98,7 +102,7 @@ export async function uploadDriveBackup(
   jsonContent: string,
   existingFileId?: string
 ): Promise<DriveBackupMeta> {
-  const boundary = 'tomato_backup_boundary_314159';
+  const boundary = 'zonein_backup_boundary_314159';
   const metadata = existingFileId
     ? { name: BACKUP_FILE_NAME, mimeType: 'application/json' }
     : { name: BACKUP_FILE_NAME, parents: ['appDataFolder'], mimeType: 'application/json' };
@@ -113,8 +117,8 @@ export async function uploadDriveBackup(
     `--${boundary}--`;
 
   const url = existingFileId
-    ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart&fields=id,modifiedTime`
-    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime`;
+    ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart&fields=id,name,modifiedTime,size`
+    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime,size`;
 
   const res = await fetch(url, {
     method: existingFileId ? 'PATCH' : 'POST',
@@ -129,4 +133,94 @@ export async function uploadDriveBackup(
     throw new Error(`Drive upload failed (${res.status})`);
   }
   return (await res.json()) as DriveBackupMeta;
+}
+
+export interface CloudSyncResult {
+  status: 'restored' | 'uploaded' | 'in_sync' | 'error';
+  message: string;
+  file?: DriveBackupMeta | null;
+  remoteData?: any;
+}
+
+/**
+ * Intelligent two-way Google Drive sync:
+ * - If user connects on a new PC or local is untouched: AUTO-RESTORES from Google Drive!
+ * - If Google Drive has newer changes from another PC: AUTO-RESTORES!
+ * - If local has newer changes: AUTO-UPLOADS to Google Drive!
+ * - If in sync: Keeps both in sync.
+ */
+export async function syncWithGoogleDrive(
+  accessToken: string,
+  getLocalJson: () => string,
+  localLastModified: number,
+  isLocalPristine: boolean,
+  onRestore: (remoteJson: string) => boolean
+): Promise<CloudSyncResult> {
+  try {
+    const existingFile = await findDriveBackupFile(accessToken);
+    if (!existingFile) {
+      const saved = await uploadDriveBackup(accessToken, getLocalJson());
+      return {
+        status: 'uploaded',
+        message: 'Initial backup uploaded to Google Drive.',
+        file: saved,
+      };
+    }
+
+    const remoteRaw = await downloadDriveBackup(accessToken, existingFile.id);
+    let remoteParsed: any = null;
+    try {
+      remoteParsed = JSON.parse(remoteRaw);
+    } catch {
+      const saved = await uploadDriveBackup(accessToken, getLocalJson(), existingFile.id);
+      return {
+        status: 'uploaded',
+        message: 'Replaced invalid cloud backup with local data.',
+        file: saved,
+      };
+    }
+
+    const remoteTimestamp =
+      remoteParsed.lastModified ||
+      (remoteParsed.exportedAt ? new Date(remoteParsed.exportedAt).getTime() : 0) ||
+      (existingFile.modifiedTime ? new Date(existingFile.modifiedTime).getTime() : 0);
+
+    const remoteTopicCount = Array.isArray(remoteParsed.topics) ? remoteParsed.topics.length : 0;
+
+    // If local is pristine (brand new PC install) OR remote is newer:
+    if (isLocalPristine || remoteTimestamp > localLastModified + 2000) {
+      const ok = onRestore(remoteRaw);
+      if (ok) {
+        return {
+          status: 'restored',
+          message: `Auto-restored ${remoteTopicCount} topics, customizations & stats from Google Drive.`,
+          file: existingFile,
+          remoteData: remoteParsed,
+        };
+      }
+    }
+
+    // If local has newer modifications, push to Google Drive
+    if (localLastModified > remoteTimestamp + 2000) {
+      const saved = await uploadDriveBackup(accessToken, getLocalJson(), existingFile.id);
+      return {
+        status: 'uploaded',
+        message: 'Updated Google Drive with latest local changes.',
+        file: saved,
+      };
+    }
+
+    return {
+      status: 'in_sync',
+      message: 'Local PC data and Google Drive are in sync.',
+      file: existingFile,
+      remoteData: remoteParsed,
+    };
+  } catch (err) {
+    console.error('Google Drive sync error:', err);
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Google Drive sync failed.',
+    };
+  }
 }

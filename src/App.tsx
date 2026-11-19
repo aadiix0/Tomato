@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BarChart2, BellOff, ListTodo, Settings, Timer } from 'lucide-react';
+import { BarChart2, BellOff, CheckCircle2, Cloud, ListTodo, Settings, Timer } from 'lucide-react';
 import { useTomatoStore } from './store/useTomatoStore';
 import { TimerScreen } from './components/TimerScreen';
 import { TasksScreen } from './components/TasksScreen';
@@ -17,6 +17,7 @@ import { millisecondsToHoursMinutes, toLocalDateKey, totalFocusOfStat } from './
 import {
   findDriveBackupFile,
   getAccessToken,
+  initAuth,
   uploadDriveBackup,
 } from './services/googleDriveSync';
 import type { MainTab, SettingsSubScreen, StatsSubScreen, Topic } from './types';
@@ -37,8 +38,25 @@ export function App() {
     focusSummary?: FocusSummaryData;
   } | null>(null);
   const [pipNotice, setPipNotice] = useState<string | null>(null);
+  const [toastNotice, setToastNotice] = useState<{ message: string; icon?: 'cloud' | 'check' | 'alert' } | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<number | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
   const prevAlarmRef = useRef(false);
+
+  const showToast = useCallback((message: string, icon: 'cloud' | 'check' | 'alert' = 'cloud') => {
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
+    setToastNotice({ message, icon });
+    toastTimeoutRef.current = window.setTimeout(() => setToastNotice(null), 4000);
+  }, []);
+
+  useEffect(() => {
+    const unsub = initAuth(
+      (user) => setCurrentUserEmail(user.email || user.displayName || 'Google Account'),
+      () => setCurrentUserEmail(null)
+    );
+    return () => unsub();
+  }, []);
 
   // Apply dynamic Material 3 Expressive color palette
   useEffect(() => {
@@ -80,9 +98,9 @@ export function App() {
           : store.timerState.timerMode === 'SHORT_BREAK'
             ? 'Short Break'
             : 'Long Break';
-      document.title = `${store.timerState.timeStr} · ${modeLabel} — Tomato`;
+      document.title = `${store.timerState.timeStr} · ${modeLabel} — Zonein`;
     } else {
-      document.title = 'Tomato';
+      document.title = 'Zonein';
     }
   }, [store.timerState.timerRunning, store.timerState.timeStr, store.timerState.timerMode]);
 
@@ -121,7 +139,7 @@ export function App() {
           : store.timerState.timerMode === 'SHORT_BREAK'
             ? 'Time for a short break!'
             : 'Time for a long break!';
-      new Notification('Tomato', { body: nextLabel, icon: '/pwa-192x192.png' });
+      new Notification('Zonein', { body: nextLabel, icon: '/pwa-192x192.png' });
     }
   }, [store.timerState.alarmRinging, store.timerState.timerMode, store.settings.desktopNotifications]);
 
@@ -150,7 +168,7 @@ export function App() {
 
       if (nowMins >= targetMins) {
         localStorage.setItem('tomato_productive_reminder_date', todayKey);
-        const n = new Notification('Time to lock in — Tomato', {
+        const n = new Notification('Time to lock in — Zonein', {
           body: 'Your productive hours have started! Set your daily focus goal and crush today’s sessions.',
           icon: '/pwa-192x192.png',
         });
@@ -267,10 +285,38 @@ export function App() {
       } catch {
         // Silent retry on next data change
       }
-    }, 5000);
+    }, 4000);
 
     return () => window.clearTimeout(timerId);
-  }, [store.settings.autoDriveSync, store.topics, store.stats, store.tasks, store.exportBackupJson, store.updateSettings]);
+  }, [
+    store.settings.autoDriveSync,
+    store.topics,
+    store.stats,
+    store.tasks,
+    store.settings.theme,
+    store.settings.colorScheme,
+    store.settings.blackTheme,
+    store.settings.timerLayoutStyle,
+    store.settings.breakTimerLayoutStyle,
+    store.settings.timerFontFamily,
+    store.settings.timerPulseAnimation,
+    store.settings.timerDigitGlow,
+    store.settings.customBackgroundUrl,
+    store.settings.wallpaperDim,
+    store.settings.wallpaperBlur,
+    store.settings.wallpaperOpacity,
+    store.settings.wallpaperFit,
+    store.settings.wallpaperGlassCards,
+    store.settings.wallpaperVignette,
+    store.settings.focusGoal,
+    store.settings.alarmEnabled,
+    store.settings.vibrateEnabled,
+    store.settings.desktopNotifications,
+    store.settings.keyboardShortcuts,
+    store.settings.keepScreenAwake,
+    store.exportBackupJson,
+    store.updateSettings,
+  ]);
 
   // Keep Document Picture-in-Picture mini-timer in sync
   useEffect(() => {
@@ -443,8 +489,54 @@ export function App() {
       )}
       <div className="relative z-10 min-h-screen flex flex-col">
         {!aodMode && (
-          <div className="fixed top-4 right-4 z-40">
+          <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('settings');
+                setSettingsSub('backup');
+              }}
+              title={
+                currentUserEmail
+                  ? `Google Drive Sync: ${currentUserEmail} · Click to manage`
+                  : 'Connect Google Drive for cross-PC auto backup'
+              }
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md shadow-md border transition-all hover:scale-105 cursor-pointer"
+              style={{
+                backgroundColor: currentUserEmail
+                  ? 'var(--m3-primary-container)'
+                  : 'var(--m3-surface-container-high)',
+                color: currentUserEmail
+                  ? 'var(--m3-on-primary-container)'
+                  : 'var(--m3-on-surface)',
+                borderColor: 'var(--m3-outline-variant)',
+              }}
+            >
+              <Cloud size={14} className={currentUserEmail ? 'text-emerald-500' : ''} />
+              <span className="hidden sm:inline">
+                {currentUserEmail ? 'Drive Synced' : 'Drive Sync'}
+              </span>
+            </button>
             <PWAInstallButton />
+          </div>
+        )}
+
+        {/* Global Toast for Cloud Auto-Sync & Restores */}
+        {toastNotice && (
+          <div
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-5 py-2.5 rounded-full text-xs font-bold shadow-2xl border transition-all animate-in fade-in slide-in-from-top duration-300"
+            style={{
+              backgroundColor: 'var(--m3-primary-container)',
+              color: 'var(--m3-on-primary-container)',
+              borderColor: 'var(--m3-primary)',
+            }}
+          >
+            {toastNotice.icon === 'check' ? (
+              <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+            ) : (
+              <Cloud size={16} className="shrink-0" style={{ color: 'var(--m3-primary)' }} />
+            )}
+            <span>{toastNotice.message}</span>
           </div>
         )}
       {activeTab === 'timer' && (
@@ -459,8 +551,10 @@ export function App() {
           hasCustomBg={hasCustomBg}
           isDark={isDark}
           timerLayoutStyle={store.settings.timerLayoutStyle ?? 'wavy_circle'}
+          breakTimerLayoutStyle={store.settings.breakTimerLayoutStyle ?? 'wavy_circle'}
           timerFontFamily={store.settings.timerFontFamily ?? 'jakarta'}
           timerPulseAnimation={store.settings.timerPulseAnimation ?? true}
+          timerDigitGlow={store.settings.timerDigitGlow ?? false}
           onToggleTimer={store.toggleTimer}
           onResetTimer={store.resetTimer}
           onUndoReset={store.undoReset}
@@ -522,6 +616,8 @@ export function App() {
           settings={store.settings}
           topics={store.topics}
           subScreen={settingsSub}
+          lastModified={store.lastModified}
+          isPristine={store.isPristine}
           onNavigate={setSettingsSub}
           onUpdateSettings={store.updateSettings}
           onAddTopic={() => setTopicModal({ open: true, setAsCurrent: false })}
@@ -530,6 +626,7 @@ export function App() {
           onEraseAllData={store.eraseAllData}
           onExportBackup={store.exportBackupJson}
           onImportBackup={store.importBackupJson}
+          onShowToast={showToast}
           onPreviewCelebration={(variant) => {
             const titles: Record<CelebrationVariant, { title: string; subtitle: string }> = {
               task: { title: 'Sample Task Completed!', subtitle: 'Estimated 25m · Actual 22m' },

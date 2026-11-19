@@ -18,6 +18,12 @@ import {
   toLocalDateKey,
 } from '../utils/time';
 import { alarmPlayer } from '../utils/sound';
+import {
+  loadInitialFromLocalStorage,
+  loadPersistedState,
+  persistFullState,
+  type PersistedBundle,
+} from '../services/localPersistence';
 
 const STORAGE_KEYS = {
   TOPICS: 'tomato_topics_v2',
@@ -90,27 +96,17 @@ interface ResetSnapshot {
 }
 
 export function useTomatoStore() {
-  const [topics, setTopics] = useState<Topic[]>(() => {
-    const loaded = loadJson<Topic[]>(STORAGE_KEYS.TOPICS, [DEFAULT_TOPIC]);
-    return loaded.length > 0 ? loaded : [DEFAULT_TOPIC];
-  });
+  const initialDataRef = useRef<PersistedBundle | null>(null);
+  if (!initialDataRef.current) {
+    initialDataRef.current = loadInitialFromLocalStorage();
+  }
 
-  const [currentTopicId, setCurrentTopicId] = useState<number>(() =>
-    loadJson<number>(STORAGE_KEYS.CURRENT_TOPIC_ID, DEFAULT_TOPIC_ID)
-  );
-
-  const [stats, setStats] = useState<Stat[]>(() =>
-    loadJson<Stat[]>(STORAGE_KEYS.STATS, [])
-  );
-
-  const [settings, setSettings] = useState<SettingsState>(() => ({
-    ...DEFAULT_SETTINGS,
-    ...loadJson<Partial<SettingsState>>(STORAGE_KEYS.SETTINGS, {}),
-  }));
-
-  const [tasks, setTasks] = useState<Task[]>(() =>
-    loadJson<Task[]>(STORAGE_KEYS.TASKS, [])
-  );
+  const [topics, setTopics] = useState<Topic[]>(initialDataRef.current.topics);
+  const [currentTopicId, setCurrentTopicId] = useState<number>(initialDataRef.current.currentTopicId);
+  const [stats, setStats] = useState<Stat[]>(initialDataRef.current.stats);
+  const [settings, setSettings] = useState<SettingsState>(initialDataRef.current.settings);
+  const [tasks, setTasks] = useState<Task[]>(initialDataRef.current.tasks);
+  const lastModifiedRef = useRef<number>(initialDataRef.current.lastModified);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
@@ -122,9 +118,34 @@ export function useTomatoStore() {
   const activeTaskIdRef = useRef<string | null>(activeTaskId);
   activeTaskIdRef.current = activeTaskId;
 
+  // Hydrate from Electron PC filesystem or IndexedDB if localStorage was missing or behind
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
-  }, [tasks]);
+    let mounted = true;
+    void loadPersistedState().then((persisted) => {
+      if (!mounted || !persisted) return;
+      const currentCount = topics.length;
+      const persistedCount = Array.isArray(persisted.topics) ? persisted.topics.length : 0;
+      const persistedTime = persisted.lastModified || 0;
+      if (
+        (currentCount <= 1 && persistedCount > 1) ||
+        persistedTime > lastModifiedRef.current + 1000
+      ) {
+        setTopics(persisted.topics);
+        setStats(Array.isArray(persisted.stats) ? persisted.stats : []);
+        setTasks(Array.isArray(persisted.tasks) ? persisted.tasks : []);
+        if (persisted.settings) {
+          setSettings((prev) => ({ ...prev, ...persisted.settings }));
+        }
+        if (persisted.currentTopicId) {
+          setCurrentTopicId(persisted.currentTopicId);
+        }
+        lastModifiedRef.current = persistedTime;
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const currentTopic = useMemo(
     () => topics.find((t) => t.id === currentTopicId) ?? topics[0] ?? DEFAULT_TOPIC,
@@ -170,21 +191,20 @@ export function useTomatoStore() {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
+  // Multi-tier persistence: localStorage + IndexedDB + Electron PC hard drive
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(topics));
-  }, [topics]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CURRENT_TOPIC_ID, JSON.stringify(currentTopicId));
-  }, [currentTopicId]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(stats));
-  }, [stats]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-  }, [settings]);
+    const now = Date.now();
+    lastModifiedRef.current = now;
+    persistFullState({
+      version: 2,
+      lastModified: now,
+      topics,
+      currentTopicId,
+      stats,
+      tasks,
+      settings,
+    });
+  }, [topics, currentTopicId, stats, tasks, settings]);
 
   const sessionActive = useMemo(() => {
     const expectedStart = timerState.infiniteFocus
@@ -610,11 +630,21 @@ export function useTomatoStore() {
     }));
   }, []);
 
+  const isPristine = useMemo(() => {
+    return (
+      topics.length <= 1 &&
+      (topics[0]?.id === DEFAULT_TOPIC_ID || !topics[0]) &&
+      stats.length === 0 &&
+      tasks.length === 0
+    );
+  }, [topics, stats, tasks]);
+
   const exportBackupJson = useCallback(() => {
     return JSON.stringify(
       {
         version: 2,
         exportedAt: new Date().toISOString(),
+        lastModified: lastModifiedRef.current || Date.now(),
         topics,
         currentTopicId,
         stats,
@@ -634,20 +664,41 @@ export function useTomatoStore() {
       }
       const restoredTopics: Topic[] =
         parsed.topics.length > 0 ? parsed.topics : [DEFAULT_TOPIC];
-      setTopics(restoredTopics);
-      setStats(parsed.stats);
-      if (Array.isArray(parsed.tasks)) {
-        setTasks(parsed.tasks);
-      }
-      if (parsed.settings && typeof parsed.settings === 'object') {
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
-      }
       const restoredId =
         typeof parsed.currentTopicId === 'number' &&
         restoredTopics.some((t) => t.id === parsed.currentTopicId)
           ? parsed.currentTopicId
           : restoredTopics[0].id;
+      const restoredStats = Array.isArray(parsed.stats) ? parsed.stats : [];
+      const restoredTasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+      const restoredSettings = {
+        ...DEFAULT_SETTINGS,
+        ...(parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {}),
+      };
+      const restoredModified =
+        typeof parsed.lastModified === 'number'
+          ? parsed.lastModified
+          : parsed.exportedAt
+            ? new Date(parsed.exportedAt).getTime()
+            : Date.now();
+
+      setTopics(restoredTopics);
+      setStats(restoredStats);
+      setTasks(restoredTasks);
+      setSettings(restoredSettings);
       setCurrentTopicId(restoredId);
+      lastModifiedRef.current = restoredModified;
+
+      persistFullState({
+        version: 2,
+        lastModified: restoredModified,
+        topics: restoredTopics,
+        currentTopicId: restoredId,
+        stats: restoredStats,
+        tasks: restoredTasks,
+        settings: restoredSettings,
+      });
+
       const activeTopic = restoredTopics.find((t) => t.id === restoredId) ?? DEFAULT_TOPIC;
       setTimerState((curr) => ({
         ...buildIntervalState(curr, activeTopic, 0, false),
@@ -677,6 +728,8 @@ export function useTomatoStore() {
     timerState,
     sessionActive,
     progress,
+    lastModified: lastModifiedRef.current,
+    isPristine,
     toggleTimer,
     skipTimer,
     resetTimer,

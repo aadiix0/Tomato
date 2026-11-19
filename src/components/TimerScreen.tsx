@@ -42,8 +42,10 @@ interface TimerScreenProps {
   hasCustomBg?: boolean;
   isDark?: boolean;
   timerLayoutStyle?: 'wavy_circle' | 'minimalist_ring' | 'cyber_box' | 'clean_minimal';
+  breakTimerLayoutStyle?: 'match_focus' | 'wavy_circle' | 'pulsing_bubble' | 'minimalist_ring' | 'cyber_box' | 'clean_minimal';
   timerFontFamily?: 'jakarta' | 'mono' | 'serif' | 'retro';
   timerPulseAnimation?: boolean;
+  timerDigitGlow?: boolean;
 }
 
 function buildWavyCirclePath(cx: number, cy: number, r: number, amplitude: number, waves: number): string {
@@ -82,8 +84,10 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
   hasCustomBg = false,
   isDark = false,
   timerLayoutStyle = 'wavy_circle',
+  breakTimerLayoutStyle = 'wavy_circle',
   timerFontFamily = 'jakarta',
   timerPulseAnimation = true,
+  timerDigitGlow = false,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showSessionCount, setShowSessionCount] = useState(true);
@@ -128,7 +132,7 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
   };
 
   const titleText = timerState.showBrandTitle
-    ? 'Tomato'
+    ? 'Zonein'
     : timerState.timerMode === 'FOCUS'
       ? timerState.infiniteFocus
         ? 'Infinite Focus'
@@ -297,16 +301,23 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
                     ? 'font-black tracking-widest'
                     : 'font-extrabold tracking-tight';
 
-              const digitShadow = hasCustomBg
+              const effectiveLayoutStyle = isFocus
+                ? timerLayoutStyle
+                : (breakTimerLayoutStyle === 'match_focus' ? timerLayoutStyle : (breakTimerLayoutStyle ?? 'wavy_circle'));
+
+              const baseShadow = hasCustomBg
                 ? isDark
                   ? '0 4px 24px rgba(0,0,0,0.9)'
                   : '0 2px 16px rgba(255,255,255,0.95)'
-                : undefined;
+                : '';
+              const digitShadow = timerDigitGlow
+                ? `0 0 28px ${accentColor}${baseShadow ? `, ${baseShadow}` : ''}`
+                : baseShadow || undefined;
 
               const pulseClass =
                 timerPulseAnimation && timerState.timerRunning ? 'animate-pulse' : '';
 
-              if (timerLayoutStyle === 'cyber_box') {
+              if (effectiveLayoutStyle === 'cyber_box') {
                 return (
                   <div
                     className="w-full max-w-[330px] rounded-[32px] p-7 flex flex-col items-center justify-center shadow-lg border transition-all duration-300"
@@ -344,7 +355,7 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
                             color: onContainerColor,
                           }}
                         >
-                          Session {timerState.currentFocusCount} / {timerState.totalFocusCount}
+                          {isFocus ? `Session ${timerState.currentFocusCount} / {timerState.totalFocusCount}` : 'Break Time'}
                         </span>
                       )}
                     </button>
@@ -367,7 +378,7 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
                 );
               }
 
-              if (timerLayoutStyle === 'clean_minimal') {
+              if (effectiveLayoutStyle === 'clean_minimal') {
                 return (
                   <div className="flex flex-col items-center justify-center py-8 px-4 min-h-[250px] w-full max-w-[340px]">
                     <button
@@ -395,7 +406,7 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
                           className="mt-3 text-base font-bold tabular-nums"
                           style={{ color: 'var(--m3-outline)' }}
                         >
-                          {timerState.currentFocusCount} / {timerState.totalFocusCount}
+                          {isFocus ? `${timerState.currentFocusCount} / {timerState.totalFocusCount}` : 'Break'}
                         </span>
                       )}
                     </button>
@@ -417,8 +428,60 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
                 );
               }
 
-              const useWavyRing = timerLayoutStyle === 'wavy_circle' && !isFocus;
-              const ringStroke = timerLayoutStyle === 'minimalist_ring' ? 6 : strokeWidth;
+              if (effectiveLayoutStyle === 'pulsing_bubble') {
+                return (
+                  <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+                    <div
+                      className={`absolute inset-2 rounded-full transition-all duration-1000 ${timerState.timerRunning ? 'animate-pulse' : ''}`}
+                      style={{
+                        backgroundColor: accentColor,
+                        opacity: 0.22,
+                        filter: 'blur(22px)',
+                        transform: timerState.timerRunning ? 'scale(1.12)' : 'scale(1)',
+                      }}
+                    />
+                    <div
+                      className="absolute inset-6 rounded-full flex flex-col items-center justify-center shadow-xl border"
+                      style={{
+                        backgroundColor: 'var(--m3-surface-container-low)',
+                        borderColor: accentColor,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setShowSessionCount((s) => !s)}
+                        className="flex flex-col items-center justify-center select-none cursor-pointer focus:outline-none"
+                      >
+                        <span
+                          className={`${fontWeightClass} tabular-nums leading-none transition-all duration-300 ${pulseClass}`}
+                          style={{
+                            fontFamily: fontFamilyCss,
+                            fontSize: timerState.timeStr.length > 5 ? '3.25rem' : '4.25rem',
+                            color: 'var(--m3-on-surface)',
+                            textShadow: digitShadow,
+                          }}
+                        >
+                          {timerState.timeStr}
+                        </span>
+                        {showSessionCount && (
+                          <span
+                            className="mt-3 text-xs font-bold tabular-nums px-3.5 py-1 rounded-full uppercase tracking-wider"
+                            style={{
+                              backgroundColor: containerColor,
+                              color: onContainerColor,
+                            }}
+                          >
+                            {isFocus ? `Session ${timerState.currentFocusCount}/${timerState.totalFocusCount}` : 'Zen Break'}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              const useWavyRing = effectiveLayoutStyle === 'wavy_circle' && !isFocus;
+              const ringStroke = effectiveLayoutStyle === 'minimalist_ring' ? 6 : strokeWidth;
 
               return (
                 <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>

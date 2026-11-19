@@ -34,12 +34,15 @@ import {
 import { alarmPlayer } from '../utils/sound';
 import { TopicShapeIcon } from './TopicShapeIcon';
 import { GoogleDriveBackupCard } from './GoogleDriveBackupCard';
+import { compressImageFile } from '../services/localPersistence';
 import type { CelebrationVariant } from './CelebrationModal';
 
 interface SettingsScreenProps {
   settings: SettingsState;
   topics: Topic[];
   subScreen: SettingsSubScreen;
+  lastModified?: number;
+  isPristine?: boolean;
   onNavigate: (sub: SettingsSubScreen) => void;
   onUpdateSettings: (patch: Partial<SettingsState>) => void;
   onAddTopic: () => void;
@@ -49,12 +52,15 @@ interface SettingsScreenProps {
   onExportBackup: () => string;
   onImportBackup: (raw: string) => boolean;
   onPreviewCelebration: (variant: CelebrationVariant) => void;
+  onShowToast?: (message: string) => void;
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
   topics,
   subScreen,
+  lastModified,
+  isPristine,
   onNavigate,
   onUpdateSettings,
   onAddTopic,
@@ -64,11 +70,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onExportBackup,
   onImportBackup,
   onPreviewCelebration,
+  onShowToast,
 }) => {
   const hasCustomBg = Boolean(settings.customBackgroundUrl);
   const [confirmErase, setConfirmErase] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
   const [wallpaperInput, setWallpaperInput] = useState(settings.customBackgroundUrl || '');
+  const [previewMode, setPreviewMode] = useState<'focus' | 'break'>('focus');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -342,8 +350,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Appearance -> Timer Display & Style
   if (subScreen === 'appearance_timer') {
     const activeLayout = settings.timerLayoutStyle ?? 'wavy_circle';
+    const breakLayout = settings.breakTimerLayoutStyle ?? 'wavy_circle';
     const activeFont = settings.timerFontFamily ?? 'jakarta';
     const activePulse = settings.timerPulseAnimation ?? true;
+    const digitGlow = settings.timerDigitGlow ?? false;
 
     const previewFontCss =
       activeFont === 'mono'
@@ -361,6 +371,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           ? 'font-black tracking-widest'
           : 'font-extrabold tracking-tight';
 
+    const currentLayoutToPreview = previewMode === 'focus' ? activeLayout : (breakLayout === 'match_focus' ? activeLayout : breakLayout);
+    const previewTimeStr = previewMode === 'focus' ? '25:00' : '05:00';
+    const previewLabel = previewMode === 'focus' ? 'Focus Mode' : 'Zen Break';
+
     return (
       <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
@@ -371,69 +385,160 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             className="rounded-[24px] p-6 flex flex-col items-center justify-center space-y-3"
             style={{ backgroundColor: 'var(--m3-surface-bright)' }}
           >
-            <div className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--m3-outline)' }}>
-              Live Clock Preview
+            <div className="flex items-center justify-between w-full">
+              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--m3-outline)' }}>
+                Live Clock Preview
+              </span>
+              <div className="flex bg-black/10 dark:bg-white/10 p-1 rounded-full text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode('focus')}
+                  className={`px-3 py-1 rounded-full cursor-pointer transition-colors ${previewMode === 'focus' ? 'bg-[var(--m3-primary)] text-[var(--m3-on-primary)]' : 'opacity-70'}`}
+                >
+                  Focus
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode('break')}
+                  className={`px-3 py-1 rounded-full cursor-pointer transition-colors ${previewMode === 'break' ? 'bg-[var(--m3-tertiary)] text-[var(--m3-on-tertiary)]' : 'opacity-70'}`}
+                >
+                  Break
+                </button>
+              </div>
             </div>
 
-            {activeLayout === 'cyber_box' ? (
+            {currentLayoutToPreview === 'cyber_box' ? (
               <div
                 className="w-60 rounded-[24px] p-5 flex flex-col items-center border"
                 style={{
                   backgroundColor: 'var(--m3-surface-container-low)',
-                  borderColor: 'var(--m3-primary)',
+                  borderColor: previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)',
                 }}
               >
                 <span
                   className={`text-5xl tabular-nums leading-none ${previewWeightClass} ${activePulse ? 'animate-pulse' : ''}`}
-                  style={{ fontFamily: previewFontCss }}
+                  style={{
+                    fontFamily: previewFontCss,
+                    textShadow: digitGlow ? `0 0 24px ${previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)'}` : 'none',
+                  }}
                 >
-                  25:00
+                  {previewTimeStr}
                 </span>
-                <div className="w-full h-2 rounded-full overflow-hidden mt-4" style={{ backgroundColor: 'var(--m3-secondary-container)' }}>
-                  <div className="h-full w-3/4 rounded-full" style={{ backgroundColor: 'var(--m3-primary)' }} />
-                </div>
+                <span className="mt-2 text-xs font-bold px-2.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--m3-secondary-container)' }}>
+                  {previewLabel}
+                </span>
               </div>
-            ) : activeLayout === 'clean_minimal' ? (
+            ) : currentLayoutToPreview === 'clean_minimal' ? (
               <div className="py-4 flex flex-col items-center">
                 <span
                   className={`text-6xl tabular-nums leading-none ${previewWeightClass} ${activePulse ? 'animate-pulse' : ''}`}
-                  style={{ fontFamily: previewFontCss }}
+                  style={{
+                    fontFamily: previewFontCss,
+                    textShadow: digitGlow ? `0 0 28px ${previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)'}` : 'none',
+                  }}
                 >
-                  25:00
+                  {previewTimeStr}
                 </span>
-                <div className="w-36 h-1.5 rounded-full overflow-hidden mt-3" style={{ backgroundColor: 'var(--m3-secondary-container)' }}>
-                  <div className="h-full w-3/4 rounded-full" style={{ backgroundColor: 'var(--m3-primary)' }} />
+                <span className="mt-2 text-xs font-semibold opacity-70">{previewLabel}</span>
+              </div>
+            ) : currentLayoutToPreview === 'wavy_circle' && previewMode === 'break' ? (
+              <div className="relative w-36 h-36 flex items-center justify-center">
+                <svg width="144" height="144" className="absolute inset-0 overflow-visible animate-wave-slow origin-center">
+                  <path
+                    d="M 72 12 C 90 12, 108 24, 118 42 C 128 60, 132 84, 118 102 C 104 120, 84 132, 72 132 C 60 132, 40 120, 26 102 C 12 84, 16 60, 26 42 C 36 24, 54 12, 72 12 Z"
+                    fill="none"
+                    stroke="var(--m3-tertiary-container)"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M 72 12 C 90 12, 108 24, 118 42 C 128 60, 132 84, 118 102 C 104 120, 84 132, 72 132 C 60 132, 40 120, 26 102 C 12 84, 16 60, 26 42 C 36 24, 54 12, 72 12 Z"
+                    fill="none"
+                    stroke="var(--m3-tertiary)"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray="100"
+                    strokeDashoffset="25"
+                  />
+                </svg>
+                <div className="flex flex-col items-center justify-center z-10">
+                  <span
+                    className={`text-2xl tabular-nums leading-none ${previewWeightClass} ${activePulse ? 'animate-pulse' : ''}`}
+                    style={{
+                      fontFamily: previewFontCss,
+                      textShadow: digitGlow ? '0 0 20px var(--m3-tertiary)' : 'none',
+                    }}
+                  >
+                    {previewTimeStr}
+                  </span>
+                  <span className="text-[10px] font-bold mt-1" style={{ color: 'var(--m3-outline)' }}>
+                    {previewLabel}
+                  </span>
+                </div>
+              </div>
+            ) : currentLayoutToPreview === 'pulsing_bubble' ? (
+              <div className="relative w-36 h-36 flex items-center justify-center">
+                <div
+                  className="absolute inset-0 rounded-full animate-pulse"
+                  style={{
+                    backgroundColor: previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)',
+                    opacity: 0.25,
+                    filter: 'blur(16px)',
+                  }}
+                />
+                <div
+                  className="absolute inset-2 rounded-full flex flex-col items-center justify-center border shadow-md"
+                  style={{
+                    backgroundColor: 'var(--m3-surface-container-low)',
+                    borderColor: previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)',
+                  }}
+                >
+                  <span
+                    className={`text-2xl tabular-nums leading-none ${previewWeightClass}`}
+                    style={{
+                      fontFamily: previewFontCss,
+                      textShadow: digitGlow ? `0 0 20px ${previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)'}` : 'none',
+                    }}
+                  >
+                    {previewTimeStr}
+                  </span>
+                  <span className="text-[10px] font-bold mt-1 uppercase" style={{ color: 'var(--m3-outline)' }}>
+                    {previewLabel}
+                  </span>
                 </div>
               </div>
             ) : (
               <div
                 className="w-36 h-36 rounded-full flex flex-col items-center justify-center"
                 style={{
-                  border: `${activeLayout === 'minimalist_ring' ? '4px' : '9px'} solid var(--m3-primary)`,
+                  border: `${currentLayoutToPreview === 'minimalist_ring' ? '4px' : '9px'} solid ${previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)'}`,
                 }}
               >
                 <span
                   className={`text-3xl tabular-nums leading-none ${previewWeightClass} ${activePulse ? 'animate-pulse' : ''}`}
-                  style={{ fontFamily: previewFontCss }}
+                  style={{
+                    fontFamily: previewFontCss,
+                    textShadow: digitGlow ? `0 0 20px ${previewMode === 'focus' ? 'var(--m3-primary)' : 'var(--m3-tertiary)'}` : 'none',
+                  }}
                 >
-                  25:00
+                  {previewTimeStr}
                 </span>
                 <span className="text-[11px] font-bold mt-1" style={{ color: 'var(--m3-outline)' }}>
-                  1 / 4
+                  {previewLabel}
                 </span>
               </div>
             )}
           </div>
 
-          {/* Visual Layout */}
+          {/* Focus Visual Layout */}
           <div className="rounded-[24px] p-5 space-y-3" style={{ backgroundColor: 'var(--m3-surface-bright)' }}>
-            <div className="text-sm font-bold">Visual Layout</div>
+            <div className="text-sm font-bold">Focus Timer Visual Layout</div>
             <div className="grid grid-cols-2 gap-2.5">
               {[
-                { id: 'wavy_circle' as const, label: 'Wavy Expressive', desc: 'Bold M3 ring + wavy break' },
-                { id: 'minimalist_ring' as const, label: 'Minimalist Ring', desc: 'Sleek ultra-thin progress ring' },
-                { id: 'cyber_box' as const, label: 'Cyber Card', desc: 'Framed card + progress bar' },
-                { id: 'clean_minimal' as const, label: 'Clean Minimal', desc: 'Oversized digits, no ring' },
+                { id: 'wavy_circle' as const, label: 'Wavy Expressive', desc: 'Bold M3 ring' },
+                { id: 'minimalist_ring' as const, label: 'Minimalist Ring', desc: 'Sleek ultra-thin ring' },
+                { id: 'cyber_box' as const, label: 'Cyber Card', desc: 'Framed card + progress' },
+                { id: 'clean_minimal' as const, label: 'Clean Minimal', desc: 'Oversized digits' },
               ].map((opt) => {
                 const selected = activeLayout === opt.id;
                 return (
@@ -445,6 +550,46 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     style={{
                       backgroundColor: selected ? 'var(--m3-primary)' : 'var(--m3-surface-container-low)',
                       color: selected ? 'var(--m3-on-primary)' : 'var(--m3-on-surface)',
+                    }}
+                  >
+                    <div className="text-xs font-bold flex items-center justify-between">
+                      <span>{opt.label}</span>
+                      {selected && <Check size={14} />}
+                    </div>
+                    <div className="text-[11px] opacity-80 mt-0.5">{opt.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Break Timer Visual Layout (Customizable Break Clock Style!) */}
+          <div className="rounded-[24px] p-5 space-y-3" style={{ backgroundColor: 'var(--m3-surface-bright)' }}>
+            <div>
+              <div className="text-sm font-bold">Break Timer Clock Style</div>
+              <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                Customize how the clock looks during short & long breaks
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {[
+                { id: 'match_focus' as const, label: 'Match Focus', desc: 'Same as focus' },
+                { id: 'wavy_circle' as const, label: 'Wavy Zen Ring', desc: 'Animated wavy ring' },
+                { id: 'pulsing_bubble' as const, label: 'Pulsing Bubble', desc: 'Soothing breathing' },
+                { id: 'minimalist_ring' as const, label: 'Minimalist Ring', desc: 'Thin ring' },
+                { id: 'cyber_box' as const, label: 'Cyber Card', desc: 'Framed card' },
+                { id: 'clean_minimal' as const, label: 'Clean Minimal', desc: 'Oversized digits' },
+              ].map((opt) => {
+                const selected = breakLayout === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onUpdateSettings({ breakTimerLayoutStyle: opt.id })}
+                    className="p-3.5 rounded-2xl text-left cursor-pointer transition-all hover:scale-[1.01]"
+                    style={{
+                      backgroundColor: selected ? 'var(--m3-tertiary)' : 'var(--m3-surface-container-low)',
+                      color: selected ? 'var(--m3-on-tertiary)' : 'var(--m3-on-surface)',
                     }}
                   >
                     <div className="text-xs font-bold flex items-center justify-between">
@@ -496,24 +641,43 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
           </div>
 
-          {/* Pulse Animation */}
-          <label
-            className="flex items-center justify-between p-5 rounded-[24px] cursor-pointer"
-            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
-          >
-            <div>
-              <div className="font-semibold">Active Breathing Pulse</div>
-              <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
-                Subtle pulse on timer digits while running
+          {/* Toggles: Breathing Pulse & Neon Digit Glow */}
+          <div className="space-y-1">
+            <label
+              className="flex items-center justify-between p-5 rounded-t-[24px] rounded-b-[6px] cursor-pointer"
+              style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+            >
+              <div>
+                <div className="font-semibold">Active Breathing Pulse</div>
+                <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Subtle pulse on timer digits while running
+                </div>
               </div>
-            </div>
-            <input
-              type="checkbox"
-              checked={activePulse}
-              onChange={(e) => onUpdateSettings({ timerPulseAnimation: e.target.checked })}
-              className="w-5 h-5 accent-[var(--m3-primary)] cursor-pointer"
-            />
-          </label>
+              <input
+                type="checkbox"
+                checked={activePulse}
+                onChange={(e) => onUpdateSettings({ timerPulseAnimation: e.target.checked })}
+                className="w-5 h-5 accent-[var(--m3-primary)] cursor-pointer"
+              />
+            </label>
+            <label
+              className="flex items-center justify-between p-5 rounded-t-[6px] rounded-b-[24px] cursor-pointer"
+              style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+            >
+              <div>
+                <div className="font-semibold">Neon Digit Glow</div>
+                <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Adds a glowing accent shadow halo to timer digits
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={digitGlow}
+                onChange={(e) => onUpdateSettings({ timerDigitGlow: e.target.checked })}
+                className="w-5 h-5 accent-[var(--m3-primary)] cursor-pointer"
+              />
+            </label>
+          </div>
         </div>
       </div>
     );
@@ -701,13 +865,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const dataUrl = String(reader.result ?? '');
-                      onUpdateSettings({ customBackgroundUrl: dataUrl });
-                      setWallpaperInput(dataUrl);
-                    };
-                    reader.readAsDataURL(file);
+                    void compressImageFile(file).then((compressedUrl) => {
+                      if (compressedUrl) {
+                        onUpdateSettings({ customBackgroundUrl: compressedUrl });
+                        setWallpaperInput(compressedUrl);
+                      }
+                    });
                     e.target.value = '';
                   }}
                 />
@@ -1145,10 +1308,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <GoogleDriveBackupCard
             autoSync={settings.autoDriveSync}
             lastSyncedAt={settings.lastSyncedAt}
+            lastModified={lastModified}
+            isPristine={isPristine}
             onToggleAutoSync={(enabled) => onUpdateSettings({ autoDriveSync: enabled })}
             onSynced={(timestampIso) => onUpdateSettings({ lastSyncedAt: timestampIso })}
             onExportBackup={onExportBackup}
             onImportBackup={onImportBackup}
+            onShowToast={onShowToast}
           />
           <div className="space-y-1">
             <button

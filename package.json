@@ -1,5 +1,5 @@
 {
-  "name": "tomato-pomodoro",
+  "name": "zonein-pomodoro",
   "private": true,
   "version": "2.0.0",
   "type": "module",
@@ -12,8 +12,8 @@
     "dist:win": "npm run build && electron-builder --win"
   },
   "build": {
-    "appId": "com.tomato.pomodoro",
-    "productName": "Tomato",
+    "appId": "com.zonein.pomodoro",
+    "productName": "Zonein",
     "directories": {
       "output": "release"
     },

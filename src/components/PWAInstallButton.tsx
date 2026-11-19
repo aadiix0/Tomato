@@ -56,7 +56,7 @@ export const PWAInstallButton: React.FC = () => {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-bold">Install Tomato</h3>
+              <h3 className="text-lg font-bold">Install Zonein</h3>
               <p className="text-sm" style={{ color: 'var(--m3-on-surface-variant)' }}>
                 1. Tap the <strong>Share</strong> button in Safari.
                 <br />

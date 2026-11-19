@@ -119,8 +119,10 @@ export interface SettingsState {
   wallpaperGlassCards: boolean;
   wallpaperVignette: boolean;
   timerLayoutStyle: 'wavy_circle' | 'minimalist_ring' | 'cyber_box' | 'clean_minimal';
+  breakTimerLayoutStyle: 'match_focus' | 'wavy_circle' | 'pulsing_bubble' | 'minimalist_ring' | 'cyber_box' | 'clean_minimal';
   timerFontFamily: 'jakarta' | 'mono' | 'serif' | 'retro';
   timerPulseAnimation: boolean;
+  timerDigitGlow: boolean;
 }
 
 export const DEFAULT_SETTINGS: SettingsState = {
@@ -148,8 +150,10 @@ export const DEFAULT_SETTINGS: SettingsState = {
   wallpaperGlassCards: true,
   wallpaperVignette: false,
   timerLayoutStyle: 'wavy_circle',
+  breakTimerLayoutStyle: 'wavy_circle',
   timerFontFamily: 'jakarta',
   timerPulseAnimation: true,
+  timerDigitGlow: false,
 };
 
 export interface Subtask {

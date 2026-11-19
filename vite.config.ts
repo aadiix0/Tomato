@@ -12,9 +12,9 @@ export default defineConfig({
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       manifest: {
         id: '/',
-        name: 'Tomato',
-        short_name: 'Tomato',
-        description: 'Minimalist, data-oriented Pomodoro timer based on Material 3 Expressive.',
+        name: 'Zonein',
+        short_name: 'Zonein',
+        description: 'Minimalist focus-oriented Pomodoro timer and productivity suite.',
         theme_color: '#4c662b',
         background_color: '#f9faef',
         display: 'standalone',
@@ -76,8 +76,7 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        enabled: true,
-        type: 'module',
+        enabled: false,
       },
     }),
   ],

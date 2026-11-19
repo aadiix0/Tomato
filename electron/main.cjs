@@ -53,7 +53,7 @@ async function createWindow() {
     height: 760,
     minWidth: 420,
     minHeight: 600,
-    title: 'Tomato',
+    title: 'Zonein',
     icon: appIcon,
     autoHideMenuBar: true,
     webPreferences: {
@@ -67,7 +67,8 @@ async function createWindow() {
     if (
       url.includes('accounts.google.com') ||
       url.includes('firebaseapp.com') ||
-      url.includes('127.0.0.1')
+      url.includes('127.0.0.1') ||
+      url.includes('localhost')
     ) {
       return { action: 'allow' };
     }
@@ -87,11 +88,11 @@ async function createWindow() {
 
   if (appIcon) {
     tray = new Tray(appIcon.resize({ width: 16, height: 16 }));
-    tray.setToolTip('Tomato Pomodoro');
+    tray.setToolTip('Zonein Pomodoro');
     tray.setContextMenu(
       Menu.buildFromTemplate([
         {
-          label: 'Show Tomato',
+          label: 'Show Zonein',
           click: () => {
             mainWindow?.show();
             mainWindow?.focus();

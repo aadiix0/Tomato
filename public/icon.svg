@@ -1,6 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#4c662b"/>
-  <circle cx="256" cy="276" r="144" fill="#cdeda3"/>
-  <path d="M256 112c-14 0-26 10-30 24-18-8-40-4-54 10 22 10 46 12 68 4 6 12 10 20 16 20s10-8 16-20c22 8 46 6 68-4-14-14-36-18-54-10-4-14-16-24-30-24z" fill="#354e16"/>
-  <path d="M256 184v92l62 36" fill="none" stroke="#354e16" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="100%" stop-color="#312e81"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="url(#glow)" stroke-width="20" stroke-opacity="0.3"/>
+  <circle cx="256" cy="256" r="105" fill="none" stroke="url(#glow)" stroke-width="24" stroke-linecap="round" stroke-dasharray="450 180"/>
+  <polygon points="256,160 286,226 356,236 306,286 318,356 256,322 194,356 206,286 156,236 226,226" fill="url(#glow)"/>
 </svg>

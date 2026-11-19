@@ -1,6 +1,6 @@
-# Tomato
+# Zonein
 
-Tomato is a minimalist, data-oriented Pomodoro timer web application built with React, TypeScript, Vite, and Tailwind CSS, inspired by Material 3 Expressive design.
+Zonein is a minimalist, focus-oriented Pomodoro timer web application built with React, TypeScript, Vite, and Tailwind CSS, inspired by Material 3 Expressive design.
 
 ## Features
 
