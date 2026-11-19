@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Bell,
@@ -6,12 +6,18 @@ import {
   ChevronRight,
   Clock,
   Download,
+  Eye,
   HardDrive,
+  Image,
   Info,
+  Layers,
+  Maximize2,
   Palette,
   Pencil,
   Plus,
   SlidersHorizontal,
+  Sparkles,
+  SunDim,
   Tag,
   Trash2,
   Upload,
@@ -59,9 +65,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onImportBackup,
   onPreviewCelebration,
 }) => {
+  const hasCustomBg = Boolean(settings.customBackgroundUrl);
   const [confirmErase, setConfirmErase] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
+  const [wallpaperInput, setWallpaperInput] = useState(settings.customBackgroundUrl || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setWallpaperInput(settings.customBackgroundUrl || '');
+  }, [settings.customBackgroundUrl]);
 
   const handleDownloadBackup = () => {
     const json = onExportBackup();
@@ -87,11 +99,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     e.target.value = '';
   };
 
-  const renderHeader = (title: string) => (
+  const renderHeader = (title: string, backTo: SettingsSubScreen = 'main') => (
     <div className="flex items-center gap-3 pb-2">
       <button
         type="button"
-        onClick={() => onNavigate('main')}
+        onClick={() => onNavigate(backTo)}
         className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-black/5 cursor-pointer"
         aria-label="Back"
       >
@@ -101,16 +113,123 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     </div>
   );
 
+  // Appearance Hub (zero-scroll categorized menu)
   if (subScreen === 'appearance') {
+    const layoutLabels: Record<string, string> = {
+      wavy_circle: 'Wavy Expressive',
+      minimalist_ring: 'Minimalist Ring',
+      cyber_box: 'Cyber Card',
+      clean_minimal: 'Clean Minimal',
+    };
+    const fontLabels: Record<string, string> = {
+      jakarta: 'Modern Sans',
+      mono: 'Technical Mono',
+      serif: 'Editorial Serif',
+      retro: 'Retro Display',
+    };
+    const appearanceCards: {
+      route: SettingsSubScreen;
+      icon: React.ReactNode;
+      title: string;
+      subtitle: string;
+      badge?: string;
+    }[] = [
+      {
+        route: 'appearance_theme',
+        icon: <Palette size={20} />,
+        title: 'Theme & Colors',
+        subtitle: 'Light/Dark mode, Material accent colors, AMOLED black, AOD',
+        badge: settings.theme === 'auto' ? 'System' : settings.theme === 'dark' ? 'Dark' : 'Light',
+      },
+      {
+        route: 'appearance_timer',
+        icon: <Clock size={20} />,
+        title: 'Timer Display & Style',
+        subtitle: 'Visual layout, clock font family, pulse animation & live preview',
+        badge: `${layoutLabels[settings.timerLayoutStyle ?? 'wavy_circle']} · ${fontLabels[settings.timerFontFamily ?? 'jakarta']}`,
+      },
+      {
+        route: 'appearance_wallpaper',
+        icon: <Image size={20} />,
+        title: 'Workspace Wallpaper',
+        subtitle: 'Custom images/GIFs, opacity, dimming, blur, frosted glass & vignette',
+        badge: settings.customBackgroundUrl ? 'Active' : 'None',
+      },
+    ];
+
+    return (
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
+        <div className="max-w-2xl mx-auto pt-5 space-y-4">
+          {renderHeader('Appearance', 'main')}
+
+          <div className="space-y-1.5">
+            {appearanceCards.map((card, idx) => {
+              const isFirst = idx === 0;
+              const isLast = idx === appearanceCards.length - 1;
+              const radiusClass = isFirst
+                ? 'rounded-t-[24px] rounded-b-[8px]'
+                : isLast
+                  ? 'rounded-t-[8px] rounded-b-[24px]'
+                  : 'rounded-[8px]';
+              return (
+                <button
+                  key={card.route}
+                  type="button"
+                  onClick={() => onNavigate(card.route)}
+                  className={`w-full flex items-center justify-between gap-3 p-5 ${radiusClass} cursor-pointer transition-transform active:scale-[0.99] text-left`}
+                  style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                      style={{
+                        backgroundColor: 'var(--m3-primary-container)',
+                        color: 'var(--m3-on-primary-container)',
+                      }}
+                    >
+                      {card.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-base flex items-center gap-2 flex-wrap">
+                        <span>{card.title}</span>
+                        {card.badge && (
+                          <span
+                            className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
+                            style={{
+                              backgroundColor: 'var(--m3-surface-container-high)',
+                              color: 'var(--m3-on-surface-variant)',
+                            }}
+                          >
+                            {card.badge}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                        {card.subtitle}
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight size={20} style={{ color: 'var(--m3-outline)' }} className="shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Appearance -> Theme & Colors
+  if (subScreen === 'appearance_theme') {
     const themes: { id: ThemeMode; label: string }[] = [
       { id: 'auto', label: 'System' },
       { id: 'light', label: 'Light' },
       { id: 'dark', label: 'Dark' },
     ];
     return (
-      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
-          {renderHeader('Appearance')}
+          {renderHeader('Theme & Colors', 'appearance')}
 
           <div className="rounded-[24px] p-5 space-y-3" style={{ backgroundColor: 'var(--m3-surface-bright)' }}>
             <div className="text-sm font-bold">Theme</div>
@@ -220,6 +339,613 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     );
   }
 
+  // Appearance -> Timer Display & Style
+  if (subScreen === 'appearance_timer') {
+    const activeLayout = settings.timerLayoutStyle ?? 'wavy_circle';
+    const activeFont = settings.timerFontFamily ?? 'jakarta';
+    const activePulse = settings.timerPulseAnimation ?? true;
+
+    const previewFontCss =
+      activeFont === 'mono'
+        ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+        : activeFont === 'serif'
+          ? 'Georgia, Cambria, "Times New Roman", Times, serif'
+          : activeFont === 'retro'
+            ? '"Courier New", Courier, monospace'
+            : undefined;
+
+    const previewWeightClass =
+      activeFont === 'serif'
+        ? 'font-bold italic tracking-normal'
+        : activeFont === 'retro'
+          ? 'font-black tracking-widest'
+          : 'font-extrabold tracking-tight';
+
+    return (
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
+        <div className="max-w-2xl mx-auto pt-5 space-y-4">
+          {renderHeader('Timer Display & Style', 'appearance')}
+
+          {/* Live Preview */}
+          <div
+            className="rounded-[24px] p-6 flex flex-col items-center justify-center space-y-3"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--m3-outline)' }}>
+              Live Clock Preview
+            </div>
+
+            {activeLayout === 'cyber_box' ? (
+              <div
+                className="w-60 rounded-[24px] p-5 flex flex-col items-center border"
+                style={{
+                  backgroundColor: 'var(--m3-surface-container-low)',
+                  borderColor: 'var(--m3-primary)',
+                }}
+              >
+                <span
+                  className={`text-5xl tabular-nums leading-none ${previewWeightClass} ${activePulse ? 'animate-pulse' : ''}`}
+                  style={{ fontFamily: previewFontCss }}
+                >
+                  25:00
+                </span>
+                <div className="w-full h-2 rounded-full overflow-hidden mt-4" style={{ backgroundColor: 'var(--m3-secondary-container)' }}>
+                  <div className="h-full w-3/4 rounded-full" style={{ backgroundColor: 'var(--m3-primary)' }} />
+                </div>
+              </div>
+            ) : activeLayout === 'clean_minimal' ? (
+              <div className="py-4 flex flex-col items-center">
+                <span
+                  className={`text-6xl tabular-nums leading-none ${previewWeightClass} ${activePulse ? 'animate-pulse' : ''}`}
+                  style={{ fontFamily: previewFontCss }}
+                >
+                  25:00
+                </span>
+                <div className="w-36 h-1.5 rounded-full overflow-hidden mt-3" style={{ backgroundColor: 'var(--m3-secondary-container)' }}>
+                  <div className="h-full w-3/4 rounded-full" style={{ backgroundColor: 'var(--m3-primary)' }} />
+                </div>
+              </div>
+            ) : (
+              <div
+                className="w-36 h-36 rounded-full flex flex-col items-center justify-center"
+                style={{
+                  border: `${activeLayout === 'minimalist_ring' ? '4px' : '9px'} solid var(--m3-primary)`,
+                }}
+              >
+                <span
+                  className={`text-3xl tabular-nums leading-none ${previewWeightClass} ${activePulse ? 'animate-pulse' : ''}`}
+                  style={{ fontFamily: previewFontCss }}
+                >
+                  25:00
+                </span>
+                <span className="text-[11px] font-bold mt-1" style={{ color: 'var(--m3-outline)' }}>
+                  1 / 4
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Visual Layout */}
+          <div className="rounded-[24px] p-5 space-y-3" style={{ backgroundColor: 'var(--m3-surface-bright)' }}>
+            <div className="text-sm font-bold">Visual Layout</div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {[
+                { id: 'wavy_circle' as const, label: 'Wavy Expressive', desc: 'Bold M3 ring + wavy break' },
+                { id: 'minimalist_ring' as const, label: 'Minimalist Ring', desc: 'Sleek ultra-thin progress ring' },
+                { id: 'cyber_box' as const, label: 'Cyber Card', desc: 'Framed card + progress bar' },
+                { id: 'clean_minimal' as const, label: 'Clean Minimal', desc: 'Oversized digits, no ring' },
+              ].map((opt) => {
+                const selected = activeLayout === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onUpdateSettings({ timerLayoutStyle: opt.id })}
+                    className="p-3.5 rounded-2xl text-left cursor-pointer transition-all hover:scale-[1.01]"
+                    style={{
+                      backgroundColor: selected ? 'var(--m3-primary)' : 'var(--m3-surface-container-low)',
+                      color: selected ? 'var(--m3-on-primary)' : 'var(--m3-on-surface)',
+                    }}
+                  >
+                    <div className="text-xs font-bold flex items-center justify-between">
+                      <span>{opt.label}</span>
+                      {selected && <Check size={14} />}
+                    </div>
+                    <div className="text-[11px] opacity-80 mt-0.5">{opt.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Clock Font Style */}
+          <div className="rounded-[24px] p-5 space-y-3" style={{ backgroundColor: 'var(--m3-surface-bright)' }}>
+            <div className="text-sm font-bold">Clock Font Style</div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {[
+                { id: 'jakarta' as const, label: 'Modern Sans', sample: '25:00', fontCss: undefined },
+                { id: 'mono' as const, label: 'Technical Mono', sample: '25:00', fontCss: 'ui-monospace, monospace' },
+                { id: 'serif' as const, label: 'Editorial Serif', sample: '25:00', fontCss: 'Georgia, serif' },
+                { id: 'retro' as const, label: 'Retro Display', sample: '25:00', fontCss: '"Courier New", monospace' },
+              ].map((opt) => {
+                const selected = activeFont === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onUpdateSettings({ timerFontFamily: opt.id })}
+                    className="p-3.5 rounded-2xl text-left cursor-pointer transition-all hover:scale-[1.01]"
+                    style={{
+                      backgroundColor: selected ? 'var(--m3-primary)' : 'var(--m3-surface-container-low)',
+                      color: selected ? 'var(--m3-on-primary)' : 'var(--m3-on-surface)',
+                    }}
+                  >
+                    <div className="text-xs font-bold flex items-center justify-between">
+                      <span>{opt.label}</span>
+                      {selected && <Check size={14} />}
+                    </div>
+                    <div
+                      className="text-2xl font-extrabold mt-1 tabular-nums"
+                      style={{ fontFamily: opt.fontCss }}
+                    >
+                      {opt.sample}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Pulse Animation */}
+          <label
+            className="flex items-center justify-between p-5 rounded-[24px] cursor-pointer"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div>
+              <div className="font-semibold">Active Breathing Pulse</div>
+              <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                Subtle pulse on timer digits while running
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={activePulse}
+              onChange={(e) => onUpdateSettings({ timerPulseAnimation: e.target.checked })}
+              className="w-5 h-5 accent-[var(--m3-primary)] cursor-pointer"
+            />
+          </label>
+        </div>
+      </div>
+    );
+  }
+
+  // Appearance -> Workspace Wallpaper
+  if (subScreen === 'appearance_wallpaper') {
+    return (
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
+        <div className="max-w-2xl mx-auto pt-5 space-y-4">
+          {renderHeader('Workspace Wallpaper', 'appearance')}
+
+          <div
+            className="rounded-[24px] p-5 space-y-3.5"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-base">Workspace Wallpaper</div>
+                <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Set a custom background image or animated GIF
+                </div>
+              </div>
+              {settings.customBackgroundUrl && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ customBackgroundUrl: '' })}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer transition-opacity hover:opacity-90"
+                  style={{
+                    backgroundColor: 'var(--m3-error-container)',
+                    color: 'var(--m3-on-error-container)',
+                  }}
+                >
+                  Remove wallpaper
+                </button>
+              )}
+            </div>
+
+            {/* Active Wallpaper Live Thumbnail Preview with Simulated Clock */}
+            {settings.customBackgroundUrl && (
+              <div className="relative w-full h-36 rounded-2xl overflow-hidden border border-white/20 shadow-md">
+                {/* Simulated live wallpaper with active blur, opacity, and fit */}
+                <div
+                  className="absolute inset-0 transition-all duration-200"
+                  style={{
+                    backgroundImage: `url("${settings.customBackgroundUrl}")`,
+                    backgroundPosition: 'center',
+                    backgroundSize:
+                      (settings.wallpaperFit ?? 'cover') === 'tile'
+                        ? 'auto'
+                        : (settings.wallpaperFit ?? 'cover'),
+                    backgroundRepeat:
+                      (settings.wallpaperFit ?? 'cover') === 'tile' ? 'repeat' : 'no-repeat',
+                    opacity: (settings.wallpaperOpacity ?? 100) / 100,
+                    filter:
+                      (settings.wallpaperBlur ?? 0) > 0 ? `blur(${settings.wallpaperBlur}px)` : 'none',
+                    transform: (settings.wallpaperBlur ?? 0) > 0 ? 'scale(1.12)' : 'none',
+                  }}
+                />
+                {/* Simulated overlay dimming */}
+                <div
+                  className="absolute inset-0 transition-colors duration-200"
+                  style={{
+                    backgroundColor: `rgba(0, 0, 0, ${(settings.wallpaperDim ?? 40) / 100})`,
+                  }}
+                />
+                {/* Simulated vignette if enabled */}
+                {settings.wallpaperVignette && (
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      background:
+                        'radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.7) 100%)',
+                    }}
+                  />
+                )}
+                {/* Live mini sample clock & card badge */}
+                <div className="absolute inset-0 flex flex-col justify-between p-3.5 text-white z-10 pointer-events-none select-none">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 bg-black/45 backdrop-blur-md px-2.5 py-1 rounded-full text-xs font-bold border border-white/20">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Live Wallpaper Preview
+                    </div>
+                    <span className="text-[11px] font-mono bg-black/45 backdrop-blur-md px-2.5 py-0.5 rounded-full border border-white/10 opacity-90">
+                      {settings.wallpaperOpacity ?? 100}% opac · {settings.wallpaperDim ?? 40}% dim
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-extrabold tracking-tight tabular-nums drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]">
+                        25:00
+                      </span>
+                      <span className="text-xs font-semibold opacity-90 drop-shadow">
+                        Focus Mode
+                      </span>
+                    </div>
+                    {settings.wallpaperGlassCards && (
+                      <span className="text-[10px] font-semibold bg-white/20 backdrop-blur-md px-2 py-1 rounded-lg border border-white/25">
+                        Frosted Glass
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="text-xs font-bold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+              Curated Presets
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[
+                { label: '🔥 Fireplace GIF', url: 'https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif' },
+                { label: '🌧️ Rain & City GIF', url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' },
+                { label: '🐱 Vibing Cat GIF', url: 'https://media.giphy.com/media/GeimqsH0TLDt4tScGw/giphy.gif' },
+                { label: '✨ Starry Sky', url: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=1200&q=80' },
+                { label: '💧 Rainy Window', url: 'https://images.unsplash.com/photo-1519692933481-e162a57d6721?auto=format&fit=crop&w=1200&q=80' },
+                { label: '🌆 Cyberpunk City', url: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1200&q=80' },
+              ].map((p) => {
+                const active = settings.customBackgroundUrl === p.url;
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => {
+                      onUpdateSettings({ customBackgroundUrl: p.url });
+                      setWallpaperInput(p.url);
+                    }}
+                    className="py-2.5 px-3 rounded-2xl text-xs font-bold transition-all hover:scale-[1.02] cursor-pointer text-center truncate flex items-center justify-center gap-1.5"
+                    style={{
+                      backgroundColor: active ? 'var(--m3-primary)' : 'var(--m3-surface-container-high)',
+                      color: active ? 'var(--m3-on-primary)' : 'var(--m3-on-surface)',
+                    }}
+                  >
+                    <span>{p.label}</span>
+                    {active && <Check size={13} />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="text-xs font-bold pt-1" style={{ color: 'var(--m3-on-surface-variant)' }}>
+              Or Custom Image / GIF Link
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Paste any image or GIF URL…"
+                value={wallpaperInput}
+                onChange={(e) => setWallpaperInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    onUpdateSettings({ customBackgroundUrl: wallpaperInput.trim() });
+                  }
+                }}
+                className="flex-1 min-w-0 px-3.5 py-2.5 rounded-full text-xs outline-none"
+                style={{
+                  backgroundColor: 'var(--m3-surface-container-low)',
+                  color: 'var(--m3-on-surface)',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ customBackgroundUrl: wallpaperInput.trim() })}
+                className="px-4 py-2.5 rounded-full text-xs font-bold cursor-pointer transition-opacity hover:opacity-90 shrink-0"
+                style={{
+                  backgroundColor: 'var(--m3-primary)',
+                  color: 'var(--m3-on-primary)',
+                }}
+              >
+                Apply
+              </button>
+              <label
+                className="px-4 py-2.5 rounded-full text-xs font-bold cursor-pointer inline-flex items-center gap-1.5 shrink-0 transition-opacity hover:opacity-90"
+                style={{
+                  backgroundColor: 'var(--m3-secondary-container)',
+                  color: 'var(--m3-on-secondary-container)',
+                }}
+              >
+                <Upload size={14} />
+                Upload
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const dataUrl = String(reader.result ?? '');
+                      onUpdateSettings({ customBackgroundUrl: dataUrl });
+                      setWallpaperInput(dataUrl);
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Visual Tuning Controls (Shown when wallpaper is active) */}
+            {settings.customBackgroundUrl && (
+              <div className="mt-4 pt-4 border-t border-[var(--m3-outline-variant)]/30 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal size={16} style={{ color: 'var(--m3-primary)' }} />
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--m3-on-surface)' }}>
+                      Visual Tuning & Effects
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateSettings({
+                        wallpaperOpacity: 100,
+                        wallpaperDim: 40,
+                        wallpaperBlur: 0,
+                        wallpaperFit: 'cover',
+                        wallpaperGlassCards: true,
+                        wallpaperVignette: false,
+                      })
+                    }
+                    className="text-[11px] font-semibold opacity-70 hover:opacity-100 cursor-pointer transition-opacity underline"
+                  >
+                    Reset tuning
+                  </button>
+                </div>
+
+                {/* Quick Moods */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                    Quick Mood Presets
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { label: '🌟 Balanced', opacity: 100, dim: 40, blur: 0, glass: true, vignette: false },
+                      { label: '🌌 Soft Bokeh', opacity: 85, dim: 45, blur: 10, glass: true, vignette: false },
+                      { label: '🕶️ Stealth', opacity: 70, dim: 70, blur: 4, glass: false, vignette: true },
+                      { label: '⚡ Vibrant', opacity: 100, dim: 20, blur: 0, glass: true, vignette: false },
+                    ].map((mood) => {
+                      const isCurrent =
+                        (settings.wallpaperOpacity ?? 100) === mood.opacity &&
+                        (settings.wallpaperDim ?? 40) === mood.dim &&
+                        (settings.wallpaperBlur ?? 0) === mood.blur &&
+                        Boolean(settings.wallpaperVignette) === mood.vignette;
+                      return (
+                        <button
+                          key={mood.label}
+                          type="button"
+                          onClick={() =>
+                            onUpdateSettings({
+                              wallpaperOpacity: mood.opacity,
+                              wallpaperDim: mood.dim,
+                              wallpaperBlur: mood.blur,
+                              wallpaperGlassCards: mood.glass,
+                              wallpaperVignette: mood.vignette,
+                            })
+                          }
+                          className="py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all hover:scale-105 cursor-pointer text-center truncate"
+                          style={{
+                            backgroundColor: isCurrent ? 'var(--m3-primary)' : 'var(--m3-surface-container)',
+                            color: isCurrent ? 'var(--m3-on-primary)' : 'var(--m3-on-surface)',
+                          }}
+                        >
+                          {mood.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Sliders Grid: Opacity, Dimming, Blur */}
+                <div
+                  className="space-y-3.5 p-4 rounded-2xl"
+                  style={{ backgroundColor: 'var(--m3-surface-container)' }}
+                >
+                  {/* Wallpaper Opacity */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                      <span className="flex items-center gap-1.5">
+                        <Eye size={14} style={{ color: 'var(--m3-primary)' }} />
+                        Wallpaper Transparency / Opacity
+                      </span>
+                      <span className="font-bold tabular-nums">{settings.wallpaperOpacity ?? 100}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={15}
+                      max={100}
+                      step={5}
+                      value={settings.wallpaperOpacity ?? 100}
+                      onChange={(e) => onUpdateSettings({ wallpaperOpacity: Number(e.target.value) })}
+                      className="w-full h-2 rounded-lg accent-[var(--m3-primary)] cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] opacity-60 mt-0.5">
+                      <span>Faint / Subtle (15%)</span>
+                      <span>Full Solid (100%)</span>
+                    </div>
+                  </div>
+
+                  {/* Overlay Dimming */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                      <span className="flex items-center gap-1.5">
+                        <SunDim size={14} style={{ color: 'var(--m3-primary)' }} />
+                        Contrast Tint & Dimming
+                      </span>
+                      <span className="font-bold tabular-nums">{settings.wallpaperDim ?? 40}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={90}
+                      step={5}
+                      value={settings.wallpaperDim ?? 40}
+                      onChange={(e) => onUpdateSettings({ wallpaperDim: Number(e.target.value) })}
+                      className="w-full h-2 rounded-lg accent-[var(--m3-primary)] cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] opacity-60 mt-0.5">
+                      <span>No Dimming (0%)</span>
+                      <span>Heavy Tint (90%)</span>
+                    </div>
+                  </div>
+
+                  {/* Background Blur */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles size={14} style={{ color: 'var(--m3-primary)' }} />
+                        Background Blur
+                      </span>
+                      <span className="font-bold tabular-nums">{settings.wallpaperBlur ?? 0}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20}
+                      step={2}
+                      value={settings.wallpaperBlur ?? 0}
+                      onChange={(e) => onUpdateSettings({ wallpaperBlur: Number(e.target.value) })}
+                      className="w-full h-2 rounded-lg accent-[var(--m3-primary)] cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] opacity-60 mt-0.5">
+                      <span>Sharp & Crisp (0px)</span>
+                      <span>Dreamy Bokeh (20px)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sizing & Repeat Mode */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                    Display Fit / Sizing
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'cover' as const, label: 'Cover (Full)', desc: 'Fills screen' },
+                      { id: 'contain' as const, label: 'Contain (Fit)', desc: 'No crop' },
+                      { id: 'tile' as const, label: 'Tile (Pattern)', desc: 'Repeats pattern' },
+                    ].map((mode) => {
+                      const active = (settings.wallpaperFit ?? 'cover') === mode.id;
+                      return (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() => onUpdateSettings({ wallpaperFit: mode.id })}
+                          className="py-2 px-2 rounded-xl text-center cursor-pointer transition-all hover:scale-[1.02]"
+                          style={{
+                            backgroundColor: active ? 'var(--m3-primary)' : 'var(--m3-surface-container)',
+                            color: active ? 'var(--m3-on-primary)' : 'var(--m3-on-surface)',
+                          }}
+                        >
+                          <div className="text-xs font-bold">{mode.label}</div>
+                          <div className="text-[10px] opacity-75">{mode.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Toggles: Frosted Glass Cards & Cinematic Vignette */}
+                <div className="space-y-2 pt-1">
+                  <label
+                    className="flex items-center justify-between p-3.5 rounded-2xl cursor-pointer transition-colors"
+                    style={{ backgroundColor: 'var(--m3-surface-container)' }}
+                  >
+                    <div className="pr-3">
+                      <div className="font-semibold text-xs flex items-center gap-1.5">
+                        <Layers size={14} style={{ color: 'var(--m3-primary)' }} />
+                        Frosted Glass Cards (Glassmorphism)
+                      </div>
+                      <div className="text-[11px]" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                        Makes timer & task panels translucent with backdrop blur
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings.wallpaperGlassCards ?? true}
+                      onChange={(e) => onUpdateSettings({ wallpaperGlassCards: e.target.checked })}
+                      className="w-5 h-5 accent-[var(--m3-primary)] cursor-pointer shrink-0"
+                    />
+                  </label>
+
+                  <label
+                    className="flex items-center justify-between p-3.5 rounded-2xl cursor-pointer transition-colors"
+                    style={{ backgroundColor: 'var(--m3-surface-container)' }}
+                  >
+                    <div className="pr-3">
+                      <div className="font-semibold text-xs flex items-center gap-1.5">
+                        <Maximize2 size={14} style={{ color: 'var(--m3-primary)' }} />
+                        Cinematic Edge Vignette
+                      </div>
+                      <div className="text-[11px]" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                        Subtle dark radial gradient along viewport edges
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings.wallpaperVignette ?? false}
+                      onChange={(e) => onUpdateSettings({ wallpaperVignette: e.target.checked })}
+                      className="w-5 h-5 accent-[var(--m3-primary)] cursor-pointer shrink-0"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (subScreen === 'timer') {
     const goalHours = Math.floor(settings.focusGoal / 3600000);
     const goalMins = Math.floor((settings.focusGoal % 3600000) / 60000);
@@ -229,7 +955,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     };
 
     return (
-      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
           {renderHeader('Timer')}
           <div className="rounded-[24px] p-5 space-y-4" style={{ backgroundColor: 'var(--m3-surface-bright)' }}>
@@ -277,7 +1003,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   if (subScreen === 'alarm') {
     return (
-      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
           {renderHeader('Alarm')}
           <div className="space-y-1">
@@ -335,7 +1061,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   if (subScreen === 'topics') {
     return (
-      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
           <div className="flex items-center justify-between">
             {renderHeader('Topics')}
@@ -413,7 +1139,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   if (subScreen === 'backup') {
     return (
-      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
           {renderHeader('Backup & restore')}
           <GoogleDriveBackupCard
@@ -486,7 +1212,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   if (subScreen === 'about') {
     return (
-      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
           {renderHeader('About')}
           <div className="rounded-[24px] p-6 space-y-3" style={{ backgroundColor: 'var(--m3-surface-bright)' }}>
@@ -525,7 +1251,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     };
 
     return (
-      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+      <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
           {renderHeader('Advanced')}
           <div className="space-y-1">
@@ -752,7 +1478,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   ];
 
   return (
-    <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: 'var(--m3-surface-container)' }}>
+    <div className="min-h-screen pb-28 px-4" style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}>
       <div className="max-w-2xl mx-auto pt-6 space-y-4">
         <header className="text-center pb-1">
           <h1 className="text-3xl font-extrabold tracking-tight">Settings</h1>

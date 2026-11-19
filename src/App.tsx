@@ -49,7 +49,10 @@ export function App() {
           ? store.currentTopic.color
           : store.settings.colorScheme;
       const palette = buildPalette(effectiveSeed, isDark, store.settings.blackTheme);
-      applyPaletteToRoot(palette);
+      const isGlass = Boolean(
+        store.settings.customBackgroundUrl && (store.settings.wallpaperGlassCards ?? true)
+      );
+      applyPaletteToRoot(palette, isGlass);
     };
     updateTheme();
 
@@ -58,7 +61,15 @@ export function App() {
       mq.addEventListener('change', updateTheme);
       return () => mq.removeEventListener('change', updateTheme);
     }
-  }, [store.settings.theme, store.settings.colorScheme, store.settings.blackTheme, store.currentTopic.color, activeTab]);
+  }, [
+    store.settings.theme,
+    store.settings.colorScheme,
+    store.settings.blackTheme,
+    store.settings.customBackgroundUrl,
+    store.settings.wallpaperGlassCards,
+    store.currentTopic.color,
+    activeTab,
+  ]);
 
   // Update browser tab title when timer is running
   useEffect(() => {
@@ -381,13 +392,61 @@ export function App() {
     { id: 'settings', label: 'Settings', icon: <Settings size={20} /> },
   ];
 
+  const isDark = resolveIsDark(store.settings.theme);
+  const hasCustomBg = Boolean(store.settings.customBackgroundUrl);
+
+  const bgOpacity = (store.settings.wallpaperOpacity ?? 100) / 100;
+  const bgDim = (store.settings.wallpaperDim ?? 40) / 100;
+  const bgBlur = store.settings.wallpaperBlur ?? 0;
+  const bgFit = store.settings.wallpaperFit ?? 'cover';
+  const hasVignette = Boolean(store.settings.wallpaperVignette);
+
   return (
-    <div className="min-h-screen relative">
-      {!aodMode && (
-        <div className="fixed top-4 right-4 z-40">
-          <PWAInstallButton />
+    <div className="min-h-screen relative overflow-x-hidden">
+      {hasCustomBg && (
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden select-none">
+          {/* Wallpaper image layer with opacity, blur, and scale */}
+          <div
+            className="absolute inset-0 transition-[opacity,filter] duration-300"
+            style={{
+              backgroundImage: `url("${store.settings.customBackgroundUrl}")`,
+              backgroundPosition: 'center',
+              backgroundSize: bgFit === 'tile' ? 'auto' : bgFit,
+              backgroundRepeat: bgFit === 'tile' ? 'repeat' : 'no-repeat',
+              opacity: bgOpacity,
+              filter: bgBlur > 0 ? `blur(${bgBlur}px)` : 'none',
+              transform: bgBlur > 0 ? 'scale(1.06)' : 'none',
+            }}
+          />
+
+          {/* Theme & user-controlled dimming overlay */}
+          <div
+            className="absolute inset-0 transition-colors duration-300"
+            style={{
+              backgroundColor: isDark
+                ? `rgba(0, 0, 0, ${bgDim})`
+                : `rgba(255, 255, 255, ${Math.min(0.95, bgDim * 0.9 + 0.1)})`,
+            }}
+          />
+
+          {/* Optional cinematic edge vignette */}
+          {hasVignette && (
+            <div
+              className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+              style={{
+                background:
+                  'radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.72) 100%)',
+              }}
+            />
+          )}
         </div>
       )}
+      <div className="relative z-10 min-h-screen flex flex-col">
+        {!aodMode && (
+          <div className="fixed top-4 right-4 z-40">
+            <PWAInstallButton />
+          </div>
+        )}
       {activeTab === 'timer' && (
         <TimerScreen
           timerState={store.timerState}
@@ -397,6 +456,11 @@ export function App() {
           sessionActive={store.sessionActive}
           progress={store.progress}
           aodEnabled={store.settings.aodEnabled}
+          hasCustomBg={hasCustomBg}
+          isDark={isDark}
+          timerLayoutStyle={store.settings.timerLayoutStyle ?? 'wavy_circle'}
+          timerFontFamily={store.settings.timerFontFamily ?? 'jakarta'}
+          timerPulseAnimation={store.settings.timerPulseAnimation ?? true}
           onToggleTimer={store.toggleTimer}
           onResetTimer={store.resetTimer}
           onUndoReset={store.undoReset}
@@ -427,6 +491,7 @@ export function App() {
           tasks={store.tasks}
           topics={store.topics}
           activeTaskId={store.activeTaskId}
+          hasCustomBg={hasCustomBg}
           onCreateTask={store.createTask}
           onDeleteTask={store.deleteTask}
           onMoveTask={store.moveTask}
@@ -447,6 +512,7 @@ export function App() {
           tasks={store.tasks}
           focusGoal={store.settings.focusGoal}
           subScreen={statsSub}
+          hasCustomBg={hasCustomBg}
           onNavigate={setStatsSub}
         />
       )}
@@ -635,6 +701,7 @@ export function App() {
           {pipNotice}
         </div>
       )}
+      </div>
     </div>
   );
 }

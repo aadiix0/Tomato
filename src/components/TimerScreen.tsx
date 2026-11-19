@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Infinity as InfinityIcon,
+  ListPlus,
+  NotebookPen,
   Pause,
   PictureInPicture2,
   Play,
@@ -10,6 +12,8 @@ import {
   Settings2,
   SkipForward,
   Tag,
+  Trash2,
+  X,
 } from 'lucide-react';
 import type { Task, TimerState, Topic } from '../types';
 import { TopicShapeIcon } from './TopicShapeIcon';
@@ -35,6 +39,11 @@ interface TimerScreenProps {
   onCompleteActiveTask: () => void;
   onOpenPiP: () => void;
   onSendNoteToBacklog: (title: string) => void;
+  hasCustomBg?: boolean;
+  isDark?: boolean;
+  timerLayoutStyle?: 'wavy_circle' | 'minimalist_ring' | 'cyber_box' | 'clean_minimal';
+  timerFontFamily?: 'jakarta' | 'mono' | 'serif' | 'retro';
+  timerPulseAnimation?: boolean;
 }
 
 function buildWavyCirclePath(cx: number, cy: number, r: number, amplitude: number, waves: number): string {
@@ -70,6 +79,11 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
   onCompleteActiveTask,
   onOpenPiP,
   onSendNoteToBacklog,
+  hasCustomBg = false,
+  isDark = false,
+  timerLayoutStyle = 'wavy_circle',
+  timerFontFamily = 'jakarta',
+  timerPulseAnimation = true,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showSessionCount, setShowSessionCount] = useState(true);
@@ -135,7 +149,7 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-between pb-28 px-4"
-      style={{ backgroundColor: 'var(--m3-surface)' }}
+      style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface)' }}
     >
       <header className="w-full max-w-2xl flex items-center justify-between pt-5 pb-2 relative">
         <div className="w-11 flex items-center">
@@ -266,87 +280,232 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
         <div className="w-full grid grid-cols-1 md:grid-cols-2 items-center md:items-start gap-8 md:gap-12">
           {/* Left Column: Timer Clock + Controls */}
           <div className="flex flex-col items-center justify-center">
-            <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-              {!timerState.infiniteFocus && (
-                <svg width={size} height={size} className="overflow-visible">
-                  {isFocus ? (
-                    <>
-                      <circle
-                        cx={size / 2}
-                        cy={size / 2}
-                        r={radius}
-                        fill="none"
-                        stroke={containerColor}
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                      />
-                      <circle
-                        cx={size / 2}
-                        cy={size / 2}
-                        r={radius}
-                        fill="none"
-                        stroke={accentColor}
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                        strokeDasharray={circumference}
-                        strokeDashoffset={dashOffset}
-                        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                        style={{ transition: 'stroke-dashoffset 220ms linear, stroke 300ms ease' }}
-                      />
-                    </>
-                  ) : (
-                    <g className={timerState.timerRunning ? 'animate-wave-slow origin-center' : ''}>
-                      <path
-                        d={wavyPath}
-                        fill="none"
-                        stroke={containerColor}
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                      />
-                      <path
-                        d={wavyPath}
-                        fill="none"
-                        stroke={accentColor}
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                        pathLength={100}
-                        strokeDasharray="100"
-                        strokeDashoffset={100 * (1 - progress)}
-                        style={{ transition: 'stroke-dashoffset 220ms linear, stroke 300ms ease' }}
-                      />
-                    </g>
-                  )}
-                </svg>
-              )}
+            {(() => {
+              const fontFamilyCss =
+                timerFontFamily === 'mono'
+                  ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+                  : timerFontFamily === 'serif'
+                    ? 'Georgia, Cambria, "Times New Roman", Times, serif'
+                    : timerFontFamily === 'retro'
+                      ? '"Courier New", Courier, monospace'
+                      : undefined;
 
-              <button
-                type="button"
-                onClick={() => setShowSessionCount((s) => !s)}
-                className="absolute inset-8 rounded-full flex flex-col items-center justify-center select-none cursor-pointer focus:outline-none"
-              >
-                <span
-                  className="font-extrabold tracking-tight tabular-nums leading-none transition-all duration-300"
-                  style={{
-                    fontSize: timerState.infiniteFocus
-                      ? '4.75rem'
-                      : timerState.timeStr.length > 5
-                        ? '3.25rem'
-                        : '4.25rem',
-                    color: 'var(--m3-on-surface)',
-                  }}
-                >
-                  {timerState.timeStr}
-                </span>
-                {showSessionCount && (
-                  <span
-                    className="mt-2 text-lg font-bold tabular-nums"
-                    style={{ color: 'var(--m3-outline)' }}
+              const fontWeightClass =
+                timerFontFamily === 'serif'
+                  ? 'font-bold italic tracking-normal'
+                  : timerFontFamily === 'retro'
+                    ? 'font-black tracking-widest'
+                    : 'font-extrabold tracking-tight';
+
+              const digitShadow = hasCustomBg
+                ? isDark
+                  ? '0 4px 24px rgba(0,0,0,0.9)'
+                  : '0 2px 16px rgba(255,255,255,0.95)'
+                : undefined;
+
+              const pulseClass =
+                timerPulseAnimation && timerState.timerRunning ? 'animate-pulse' : '';
+
+              if (timerLayoutStyle === 'cyber_box') {
+                return (
+                  <div
+                    className="w-full max-w-[330px] rounded-[32px] p-7 flex flex-col items-center justify-center shadow-lg border transition-all duration-300"
+                    style={{
+                      backgroundColor: 'var(--m3-surface-container-low)',
+                      borderColor: accentColor,
+                      minHeight: 230,
+                    }}
                   >
-                    {timerState.currentFocusCount} / {timerState.totalFocusCount}
-                  </span>
-                )}
-              </button>
-            </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowSessionCount((s) => !s)}
+                      className="flex flex-col items-center justify-center select-none cursor-pointer focus:outline-none w-full"
+                    >
+                      <span
+                        className={`${fontWeightClass} tabular-nums leading-none transition-all duration-300 ${pulseClass}`}
+                        style={{
+                          fontFamily: fontFamilyCss,
+                          fontSize: timerState.infiniteFocus
+                            ? '4.5rem'
+                            : timerState.timeStr.length > 5
+                              ? '3.25rem'
+                              : '4.5rem',
+                          color: 'var(--m3-on-surface)',
+                          textShadow: digitShadow,
+                        }}
+                      >
+                        {timerState.timeStr}
+                      </span>
+                      {showSessionCount && (
+                        <span
+                          className="mt-3 text-sm font-bold tabular-nums px-3 py-1 rounded-full"
+                          style={{
+                            backgroundColor: containerColor,
+                            color: onContainerColor,
+                          }}
+                        >
+                          Session {timerState.currentFocusCount} / {timerState.totalFocusCount}
+                        </span>
+                      )}
+                    </button>
+
+                    {!timerState.infiniteFocus && (
+                      <div
+                        className="w-full h-3 rounded-full overflow-hidden mt-6"
+                        style={{ backgroundColor: containerColor }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, progress * 100))}%`,
+                            backgroundColor: accentColor,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              if (timerLayoutStyle === 'clean_minimal') {
+                return (
+                  <div className="flex flex-col items-center justify-center py-8 px-4 min-h-[250px] w-full max-w-[340px]">
+                    <button
+                      type="button"
+                      onClick={() => setShowSessionCount((s) => !s)}
+                      className="flex flex-col items-center justify-center select-none cursor-pointer focus:outline-none"
+                    >
+                      <span
+                        className={`${fontWeightClass} tabular-nums leading-none transition-all duration-300 ${pulseClass}`}
+                        style={{
+                          fontFamily: fontFamilyCss,
+                          fontSize: timerState.infiniteFocus
+                            ? '5.25rem'
+                            : timerState.timeStr.length > 5
+                              ? '3.75rem'
+                              : '5.5rem',
+                          color: 'var(--m3-on-surface)',
+                          textShadow: digitShadow,
+                        }}
+                      >
+                        {timerState.timeStr}
+                      </span>
+                      {showSessionCount && (
+                        <span
+                          className="mt-3 text-base font-bold tabular-nums"
+                          style={{ color: 'var(--m3-outline)' }}
+                        >
+                          {timerState.currentFocusCount} / {timerState.totalFocusCount}
+                        </span>
+                      )}
+                    </button>
+                    {!timerState.infiniteFocus && (
+                      <div
+                        className="w-48 h-1.5 rounded-full overflow-hidden mt-5 opacity-80"
+                        style={{ backgroundColor: containerColor }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, progress * 100))}%`,
+                            backgroundColor: accentColor,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              const useWavyRing = timerLayoutStyle === 'wavy_circle' && !isFocus;
+              const ringStroke = timerLayoutStyle === 'minimalist_ring' ? 6 : strokeWidth;
+
+              return (
+                <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+                  {!timerState.infiniteFocus && (
+                    <svg width={size} height={size} className="overflow-visible">
+                      {!useWavyRing ? (
+                        <>
+                          <circle
+                            cx={size / 2}
+                            cy={size / 2}
+                            r={radius}
+                            fill="none"
+                            stroke={containerColor}
+                            strokeWidth={ringStroke}
+                            strokeLinecap="round"
+                          />
+                          <circle
+                            cx={size / 2}
+                            cy={size / 2}
+                            r={radius}
+                            fill="none"
+                            stroke={accentColor}
+                            strokeWidth={ringStroke}
+                            strokeLinecap="round"
+                            strokeDasharray={circumference}
+                            strokeDashoffset={dashOffset}
+                            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                            style={{ transition: 'stroke-dashoffset 220ms linear, stroke 300ms ease' }}
+                          />
+                        </>
+                      ) : (
+                        <g className={timerState.timerRunning ? 'animate-wave-slow origin-center' : ''}>
+                          <path
+                            d={wavyPath}
+                            fill="none"
+                            stroke={containerColor}
+                            strokeWidth={ringStroke}
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d={wavyPath}
+                            fill="none"
+                            stroke={accentColor}
+                            strokeWidth={ringStroke}
+                            strokeLinecap="round"
+                            pathLength={100}
+                            strokeDasharray="100"
+                            strokeDashoffset={100 * (1 - progress)}
+                            style={{ transition: 'stroke-dashoffset 220ms linear, stroke 300ms ease' }}
+                          />
+                        </g>
+                      )}
+                    </svg>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSessionCount((s) => !s)}
+                    className="absolute inset-8 rounded-full flex flex-col items-center justify-center select-none cursor-pointer focus:outline-none"
+                  >
+                    <span
+                      className={`${fontWeightClass} tabular-nums leading-none transition-all duration-300 ${pulseClass}`}
+                      style={{
+                        fontFamily: fontFamilyCss,
+                        fontSize: timerState.infiniteFocus
+                          ? '4.75rem'
+                          : timerState.timeStr.length > 5
+                            ? '3.25rem'
+                            : '4.25rem',
+                        color: 'var(--m3-on-surface)',
+                        textShadow: digitShadow,
+                      }}
+                    >
+                      {timerState.timeStr}
+                    </span>
+                    {showSessionCount && (
+                      <span
+                        className="mt-2 text-lg font-bold tabular-nums"
+                        style={{ color: 'var(--m3-outline)' }}
+                      >
+                        {timerState.currentFocusCount} / {timerState.totalFocusCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
 
             <div className="flex items-center justify-center gap-2.5 mt-6">
               <button
@@ -513,6 +672,7 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
           )}
         </div>
       )}
+
     </div>
   );
 };

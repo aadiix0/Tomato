@@ -24,6 +24,7 @@ interface TasksScreenProps {
   onAddSubtask: (taskId: string, title: string) => void;
   onToggleSubtask: (taskId: string, subtaskId: string) => void;
   onBlitzTask: (taskId: string) => void;
+  hasCustomBg?: boolean;
 }
 
 export const TasksScreen: React.FC<TasksScreenProps> = ({
@@ -37,6 +38,7 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
   onAddSubtask,
   onToggleSubtask,
   onBlitzTask,
+  hasCustomBg = false,
 }) => {
   const [selectedList, setSelectedList] = useState<TaskListType>('today');
   const [title, setTitle] = useState('');
@@ -70,7 +72,7 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
   return (
     <div
       className="min-h-screen pb-28 px-4"
-      style={{ backgroundColor: 'var(--m3-surface-container)' }}
+      style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}
     >
       <div className="max-w-2xl mx-auto pt-6 space-y-4">
         <header className="text-center pb-1">

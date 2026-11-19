@@ -58,3 +58,12 @@ body {
 .animate-wave-slow {
   animation: wave-spin 24s linear infinite;
 }
+
+.tomato-glass-mode [class*="rounded-[24px]"],
+.tomato-glass-mode [class*="rounded-3xl"],
+.tomato-glass-mode [class*="rounded-2xl"],
+.tomato-glass-mode nav[aria-label="Primary navigation"] {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+

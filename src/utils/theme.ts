@@ -233,8 +233,21 @@ export function buildPalette(seedHex: string, isDark: boolean, blackTheme: boole
   return palette;
 }
 
-export function applyPaletteToRoot(palette: M3Palette) {
+export function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '');
+  if (clean.length === 6) {
+    const r = parseInt(clean.substring(0, 2), 16);
+    const g = parseInt(clean.substring(2, 4), 16);
+    const b = parseInt(clean.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return hex;
+}
+
+export function applyPaletteToRoot(palette: M3Palette, isGlass = false) {
   const root = document.documentElement;
+  root.classList.toggle('tomato-glass-mode', isGlass);
+
   const map: Record<string, string> = {
     '--m3-primary': palette.primary,
     '--m3-on-primary': palette.onPrimary,
@@ -254,18 +267,18 @@ export function applyPaletteToRoot(palette: M3Palette) {
     '--m3-on-error-container': palette.onErrorContainer,
     '--m3-background': palette.background,
     '--m3-on-background': palette.onBackground,
-    '--m3-surface': palette.surface,
+    '--m3-surface': isGlass ? hexToRgba(palette.surface, 0.65) : palette.surface,
     '--m3-on-surface': palette.onSurface,
     '--m3-surface-variant': palette.surfaceVariant,
     '--m3-on-surface-variant': palette.onSurfaceVariant,
     '--m3-outline': palette.outline,
     '--m3-outline-variant': palette.outlineVariant,
-    '--m3-surface-bright': palette.surfaceBright,
-    '--m3-surface-container-lowest': palette.surfaceContainerLowest,
-    '--m3-surface-container-low': palette.surfaceContainerLow,
-    '--m3-surface-container': palette.surfaceContainer,
-    '--m3-surface-container-high': palette.surfaceContainerHigh,
-    '--m3-surface-container-highest': palette.surfaceContainerHighest,
+    '--m3-surface-bright': isGlass ? hexToRgba(palette.surfaceBright, 0.72) : palette.surfaceBright,
+    '--m3-surface-container-lowest': isGlass ? hexToRgba(palette.surfaceContainerLowest, 0.68) : palette.surfaceContainerLowest,
+    '--m3-surface-container-low': isGlass ? hexToRgba(palette.surfaceContainerLow, 0.72) : palette.surfaceContainerLow,
+    '--m3-surface-container': isGlass ? hexToRgba(palette.surfaceContainer, 0.75) : palette.surfaceContainer,
+    '--m3-surface-container-high': isGlass ? hexToRgba(palette.surfaceContainerHigh, 0.80) : palette.surfaceContainerHigh,
+    '--m3-surface-container-highest': isGlass ? hexToRgba(palette.surfaceContainerHighest, 0.85) : palette.surfaceContainerHighest,
   };
   for (const [k, v] of Object.entries(map)) {
     root.style.setProperty(k, v);

@@ -111,6 +111,16 @@ export interface SettingsState {
   celebrationsEnabled: boolean;
   productiveHoursReminderEnabled: boolean;
   productiveHoursStart: string; // HH:MM (24h)
+  customBackgroundUrl: string;
+  wallpaperOpacity: number; // 10 - 100 (%)
+  wallpaperDim: number; // 0 - 90 (%)
+  wallpaperBlur: number; // 0 - 20 (px)
+  wallpaperFit: 'cover' | 'contain' | 'tile';
+  wallpaperGlassCards: boolean;
+  wallpaperVignette: boolean;
+  timerLayoutStyle: 'wavy_circle' | 'minimalist_ring' | 'cyber_box' | 'clean_minimal';
+  timerFontFamily: 'jakarta' | 'mono' | 'serif' | 'retro';
+  timerPulseAnimation: boolean;
 }
 
 export const DEFAULT_SETTINGS: SettingsState = {
@@ -130,6 +140,16 @@ export const DEFAULT_SETTINGS: SettingsState = {
   celebrationsEnabled: true,
   productiveHoursReminderEnabled: false,
   productiveHoursStart: '09:00',
+  customBackgroundUrl: '',
+  wallpaperOpacity: 100,
+  wallpaperDim: 40,
+  wallpaperBlur: 0,
+  wallpaperFit: 'cover',
+  wallpaperGlassCards: true,
+  wallpaperVignette: false,
+  timerLayoutStyle: 'wavy_circle',
+  timerFontFamily: 'jakarta',
+  timerPulseAnimation: true,
 };
 
 export interface Subtask {
@@ -172,10 +192,13 @@ export const COLOR_SCHEMES: ColorSchemeOption[] = [
 ];
 
 export type MainTab = 'timer' | 'tasks' | 'stats' | 'settings';
-export type StatsSubScreen = 'main' | 'last_week' | 'last_month' | 'last_year';
+export type StatsSubScreen = 'main' | 'last_week' | 'last_month' | 'last_year' | 'weekly_trend';
 export type SettingsSubScreen =
   | 'main'
   | 'appearance'
+  | 'appearance_wallpaper'
+  | 'appearance_timer'
+  | 'appearance_theme'
   | 'timer'
   | 'alarm'
   | 'topics'

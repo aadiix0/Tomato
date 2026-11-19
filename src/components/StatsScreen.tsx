@@ -1,8 +1,22 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, BarChart3, Check, Flame } from 'lucide-react';
+import {
+  ArrowLeft,
+  Award,
+  BarChart3,
+  Calendar,
+  Check,
+  ChevronRight,
+  Clock,
+  Coffee,
+  Flame,
+  Sparkles,
+  TrendingUp,
+  Zap,
+} from 'lucide-react';
 import {
   Bar,
   BarChart,
+  Cell,
   Line,
   LineChart,
   ReferenceLine,
@@ -27,10 +41,31 @@ interface StatsScreenProps {
   focusGoal: number;
   subScreen: StatsSubScreen;
   onNavigate: (sub: StatsSubScreen) => void;
+  hasCustomBg?: boolean;
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const DOW_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const DOW_SHORT: Record<number, string> = {
+  1: 'Mon',
+  2: 'Tue',
+  3: 'Wed',
+  4: 'Thu',
+  5: 'Fri',
+  6: 'Sat',
+  0: 'Sun',
+};
+const DOW_FULL: Record<number, string> = {
+  1: 'Monday',
+  2: 'Tuesday',
+  3: 'Wednesday',
+  4: 'Thursday',
+  5: 'Friday',
+  6: 'Saturday',
+  0: 'Sunday',
+};
 
 export const StatsScreen: React.FC<StatsScreenProps> = ({
   stats,
@@ -39,11 +74,16 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
   focusGoal,
   subScreen,
   onNavigate,
+  hasCustomBg = false,
 }) => {
   const todayKey = toLocalDateKey();
   // Empty array means "All topics"
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
   const [hoveredCell, setHoveredCell] = useState<{ label: string; ms: number } | null>(null);
+  const [weeklyTimeFrame, setWeeklyTimeFrame] = useState<'all' | '12w' | '4w'>('all');
+  const [weeklyMetric, setWeeklyMetric] = useState<'avg' | 'total'>('avg');
+  const [selectedTrendDow, setSelectedTrendDow] = useState<number | null>(null);
+  const [trendSortBy, setTrendSortBy] = useState<'day' | 'productivity'>('day');
 
   const toggleTopicFilter = (topicId: number) => {
     setSelectedTopicIds((prev) =>
@@ -252,6 +292,756 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
 
   const goalMinutes = focusGoal > 0 ? Math.round(focusGoal / 60000) : 0;
 
+  const weeklyTrendStats = useMemo(() => {
+    if (weeklyTimeFrame === 'all') return filteredStats;
+    const daysLimit = weeklyTimeFrame === '12w' ? 84 : 28;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysLimit);
+    const cutoffKey = toLocalDateKey(cutoff);
+    return filteredStats.filter((s) => s.date >= cutoffKey);
+  }, [filteredStats, weeklyTimeFrame]);
+
+  const weeklyTrend = useMemo(() => {
+    const dowMap = new Map<
+      number,
+      {
+        totalMs: number;
+        datesSet: Set<string>;
+        q1: number;
+        q2: number;
+        q3: number;
+        q4: number;
+        topicsMap: Map<number, number>;
+      }
+    >();
+
+    for (const dow of DOW_ORDER) {
+      dowMap.set(dow, {
+        totalMs: 0,
+        datesSet: new Set(),
+        q1: 0,
+        q2: 0,
+        q3: 0,
+        q4: 0,
+        topicsMap: new Map(),
+      });
+    }
+
+    for (const s of weeklyTrendStats) {
+      const [y, m, d] = s.date.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      const dow = dateObj.getDay();
+      const entry = dowMap.get(dow);
+      if (entry) {
+        const focus = totalFocusOfStat(s);
+        entry.totalMs += focus;
+        if (focus > 0) entry.datesSet.add(s.date);
+        entry.q1 += s.focusTimeQ1;
+        entry.q2 += s.focusTimeQ2;
+        entry.q3 += s.focusTimeQ3;
+        entry.q4 += s.focusTimeQ4;
+        entry.topicsMap.set(s.topicId, (entry.topicsMap.get(s.topicId) ?? 0) + focus);
+      }
+    }
+
+    const completedTasksByDow = new Map<number, number>();
+    for (const t of filteredTasks) {
+      if (t.completedAt) {
+        try {
+          const d = new Date(t.completedAt);
+          if (!isNaN(d.getTime())) {
+            const dow = d.getDay();
+            completedTasksByDow.set(dow, (completedTasksByDow.get(dow) ?? 0) + 1);
+          }
+        } catch {
+          // Ignore
+        }
+      }
+    }
+
+    const allFocusSum = Array.from(dowMap.values()).reduce((sum, e) => sum + e.totalMs, 0);
+
+    const daysList = DOW_ORDER.map((dow) => {
+      const entry = dowMap.get(dow)!;
+      const count = entry.datesSet.size;
+      const avgMs = count > 0 ? Math.round(entry.totalMs / count) : 0;
+      const sharePct = allFocusSum > 0 ? Math.round((entry.totalMs / allFocusSum) * 100) : 0;
+      const tasksDone = completedTasksByDow.get(dow) ?? 0;
+
+      return {
+        dow,
+        shortLabel: DOW_SHORT[dow],
+        fullLabel: DOW_FULL[dow],
+        totalMs: entry.totalMs,
+        avgMs,
+        activeDaysCount: count,
+        sharePct,
+        minutes: Math.round(avgMs / 60000),
+        totalMinutes: Math.round(entry.totalMs / 60000),
+        q1: entry.q1,
+        q2: entry.q2,
+        q3: entry.q3,
+        q4: entry.q4,
+        topicsMap: entry.topicsMap,
+        tasksDone,
+      };
+    });
+
+    const sortedByTotal = [...daysList].sort((a, b) => b.totalMs - a.totalMs);
+    const mostProductive = sortedByTotal[0]?.totalMs > 0 ? sortedByTotal[0] : null;
+    const activeDaysOnly = sortedByTotal.filter((d) => d.totalMs > 0);
+    const leastProductive =
+      activeDaysOnly.length > 1 ? activeDaysOnly[activeDaysOnly.length - 1] : null;
+
+    const weekdayTotal = daysList
+      .filter((d) => d.dow >= 1 && d.dow <= 5)
+      .reduce((sum, d) => sum + d.totalMs, 0);
+    const weekendTotal = daysList
+      .filter((d) => d.dow === 0 || d.dow === 6)
+      .reduce((sum, d) => sum + d.totalMs, 0);
+    const weekdayVsWeekendSum = weekdayTotal + weekendTotal;
+    const weekdayPct =
+      weekdayVsWeekendSum > 0 ? Math.round((weekdayTotal / weekdayVsWeekendSum) * 100) : 0;
+    const weekendPct = weekdayVsWeekendSum > 0 ? 100 - weekdayPct : 0;
+
+    let peakQuarter = 'Afternoon (12–16)';
+    if (mostProductive) {
+      const qMax = Math.max(
+        mostProductive.q1,
+        mostProductive.q2,
+        mostProductive.q3,
+        mostProductive.q4
+      );
+      if (qMax > 0) {
+        if (qMax === mostProductive.q1) peakQuarter = 'Morning (00–12)';
+        else if (qMax === mostProductive.q2) peakQuarter = 'Afternoon (12–16)';
+        else if (qMax === mostProductive.q3) peakQuarter = 'Evening (16–20)';
+        else peakQuarter = 'Night (20–24)';
+      }
+    }
+
+    return {
+      daysList,
+      mostProductive,
+      leastProductive,
+      allFocusSum,
+      weekdayTotal,
+      weekendTotal,
+      weekdayPct,
+      weekendPct,
+      peakQuarter,
+    };
+  }, [weeklyTrendStats, filteredTasks]);
+
+  // Dedicated Weekly Trend View
+  if (subScreen === 'weekly_trend') {
+    const mostProductive = weeklyTrend.mostProductive;
+    const leastProductive = weeklyTrend.leastProductive;
+    const chartData = weeklyTrend.daysList.map((d) => ({
+      ...d,
+      chartValue: weeklyMetric === 'avg' ? d.minutes : d.totalMinutes,
+    }));
+
+    const maxChartValue = Math.max(1, ...chartData.map((d) => d.chartValue));
+    const displayedRankings =
+      trendSortBy === 'productivity'
+        ? [...weeklyTrend.daysList].sort((a, b) => b.totalMs - a.totalMs)
+        : weeklyTrend.daysList;
+
+    return (
+      <div
+        className="min-h-screen pb-28 px-4"
+        style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}
+      >
+        <div className="max-w-2xl mx-auto pt-5 space-y-4">
+          {/* Header */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => onNavigate('main')}
+                className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-black/5 cursor-pointer"
+                aria-label="Back"
+              >
+                <ArrowLeft size={22} />
+              </button>
+              <div>
+                <h1 className="text-2xl font-extrabold flex items-center gap-2">
+                  <TrendingUp size={24} style={{ color: 'var(--m3-primary)' }} />
+                  Weekly Trend
+                </h1>
+                <p className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Distribution across days of the week
+                </p>
+              </div>
+            </div>
+
+            {/* Time frame selector tabs */}
+            <div
+              className="flex items-center p-1 rounded-full text-xs font-bold shadow-xs"
+              style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+            >
+              {[
+                { id: 'all' as const, label: 'All Time' },
+                { id: '12w' as const, label: '12 Weeks' },
+                { id: '4w' as const, label: '4 Weeks' },
+              ].map((tf) => {
+                const active = weeklyTimeFrame === tf.id;
+                return (
+                  <button
+                    key={tf.id}
+                    type="button"
+                    onClick={() => setWeeklyTimeFrame(tf.id)}
+                    className="px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: active ? 'var(--m3-primary)' : 'transparent',
+                      color: active ? 'var(--m3-on-primary)' : 'var(--m3-on-surface-variant)',
+                    }}
+                  >
+                    {tf.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Hero Highlight Card: Most Productive Day */}
+          <div
+            className="rounded-[28px] p-5 sm:p-6 space-y-4 shadow-sm"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            {mostProductive && mostProductive.totalMs > 0 ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span
+                    className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-xs"
+                    style={{
+                      backgroundColor: 'var(--m3-primary)',
+                      color: 'var(--m3-on-primary)',
+                    }}
+                  >
+                    <Award size={14} />
+                    Most Productive Day
+                  </span>
+                  <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--m3-outline)' }}>
+                    {mostProductive.sharePct}% of your weekly output
+                  </span>
+                </div>
+
+                <div>
+                  <div
+                    className="text-4xl sm:text-5xl font-extrabold tracking-tight"
+                    style={{ color: 'var(--m3-primary)' }}
+                  >
+                    {mostProductive.fullLabel}
+                  </div>
+                  <p className="text-xs sm:text-sm mt-1.5" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                    You achieve your highest focus volume on {mostProductive.fullLabel}s, averaging{' '}
+                    <strong style={{ color: 'var(--m3-on-surface)' }}>
+                      {millisecondsToHoursMinutes(mostProductive.avgMs)}
+                    </strong>{' '}
+                    per active session day.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                  <div className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                    <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                      Avg per {mostProductive.shortLabel}
+                    </div>
+                    <div className="text-lg font-bold tabular-nums mt-0.5">
+                      {millisecondsToHoursMinutes(mostProductive.avgMs)}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                    <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                      Total Focus
+                    </div>
+                    <div className="text-lg font-bold tabular-nums mt-0.5">
+                      {millisecondsToHoursMinutes(mostProductive.totalMs)}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                    <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                      Peak Window
+                    </div>
+                    <div className="text-sm font-bold truncate mt-1">
+                      {weeklyTrend.peakQuarter}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                    <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                      Tasks Completed
+                    </div>
+                    <div className="text-lg font-bold tabular-nums mt-0.5">
+                      {mostProductive.tasksDone} tasks
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="py-8 text-center space-y-2">
+                <Calendar size={40} className="mx-auto opacity-35" />
+                <h3 className="text-base font-bold">No focus sessions recorded in this period</h3>
+                <p className="text-xs max-w-sm mx-auto" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Complete focus sessions throughout the week to see your day-by-day distribution and reveal your most productive days!
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Day-of-Week Distribution Chart */}
+          <div
+            className="rounded-[28px] p-5 space-y-4 shadow-sm"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold">Day-of-Week Focus Distribution</h2>
+                <p className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Tap any day bar to inspect its details
+                </p>
+              </div>
+
+              {/* Metric Toggle: Avg vs Total */}
+              <div
+                className="flex items-center p-0.5 rounded-full text-xs font-semibold"
+                style={{ backgroundColor: 'var(--m3-surface-container-high)' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setWeeklyMetric('avg')}
+                  className="px-2.5 py-1 rounded-full cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: weeklyMetric === 'avg' ? 'var(--m3-primary)' : 'transparent',
+                    color: weeklyMetric === 'avg' ? 'var(--m3-on-primary)' : 'var(--m3-on-surface-variant)',
+                  }}
+                >
+                  Avg / Day
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWeeklyMetric('total')}
+                  className="px-2.5 py-1 rounded-full cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: weeklyMetric === 'total' ? 'var(--m3-primary)' : 'transparent',
+                    color: weeklyMetric === 'total' ? 'var(--m3-on-primary)' : 'var(--m3-on-surface-variant)',
+                  }}
+                >
+                  Total Focus
+                </button>
+              </div>
+            </div>
+
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 12, right: 10, left: -20, bottom: 5 }}>
+                  <XAxis
+                    dataKey="shortLabel"
+                    tick={{ fontSize: 12, fontWeight: 700, fill: 'var(--m3-on-surface)' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'var(--m3-outline)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    unit="m"
+                  />
+                  <Tooltip
+                    formatter={(val: any) => [
+                      millisecondsToHoursMinutes(Number(val) * 60000),
+                      weeklyMetric === 'avg' ? 'Daily Average' : 'Total Focus',
+                    ]}
+                    labelFormatter={(label: any) => {
+                      const found = chartData.find((d) => d.shortLabel === label);
+                      return found ? `${found.fullLabel} (${found.sharePct}% of week)` : String(label);
+                    }}
+                    contentStyle={{
+                      backgroundColor: 'var(--m3-surface-container-high)',
+                      border: 'none',
+                      borderRadius: 16,
+                      color: 'var(--m3-on-surface)',
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar
+                    dataKey="chartValue"
+                    radius={[8, 8, 3, 3]}
+                    onClick={(data: any) => setSelectedTrendDow(data?.dow ?? null)}
+                    className="cursor-pointer"
+                  >
+                    {chartData.map((entry) => {
+                      const isPeak = mostProductive && entry.dow === mostProductive.dow;
+                      const isSelected = selectedTrendDow === entry.dow;
+                      let fill = 'var(--m3-surface-container-high)';
+                      if (entry.chartValue > 0) {
+                        fill = isPeak
+                          ? 'var(--m3-primary)'
+                          : isSelected
+                            ? 'var(--m3-tertiary)'
+                            : 'var(--m3-primary-container)';
+                      }
+                      return <Cell key={`cell-${entry.dow}`} fill={fill} />;
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Legend & quick helper */}
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1 border-t border-[var(--m3-outline-variant)]/20"
+              style={{ color: 'var(--m3-on-surface-variant)' }}
+            >
+              <div className="flex items-center gap-4">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: 'var(--m3-primary)' }} />
+                  Peak day ({mostProductive?.shortLabel ?? 'None'})
+                </span>
+                <span className="flex items-center gap-1.5 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: 'var(--m3-primary-container)' }} />
+                  Active days
+                </span>
+              </div>
+              <span className="text-[11px] opacity-75">
+                {weeklyMetric === 'avg'
+                  ? 'Average focus per active day'
+                  : 'Cumulative focus over period'}
+              </span>
+            </div>
+          </div>
+
+          {/* Weekday vs Weekend Rhythm */}
+          <div
+            className="rounded-[28px] p-5 space-y-3.5 shadow-sm"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold">Weekday vs. Weekend Balance</h2>
+              <span className="text-xs font-bold" style={{ color: 'var(--m3-primary)' }}>
+                {weeklyTrend.weekdayPct}% Weekday · {weeklyTrend.weekendPct}% Weekend
+              </span>
+            </div>
+
+            {/* Proportional dual progress bar */}
+            <div className="h-4 w-full rounded-full overflow-hidden flex gap-1 bg-[var(--m3-surface-container-high)]">
+              {weeklyTrend.weekdayPct > 0 && (
+                <div
+                  className="transition-all duration-500 rounded-l-full"
+                  style={{
+                    width: `${weeklyTrend.weekdayPct}%`,
+                    backgroundColor: 'var(--m3-primary)',
+                  }}
+                  title={`Weekdays: ${weeklyTrend.weekdayPct}%`}
+                />
+              )}
+              {weeklyTrend.weekendPct > 0 && (
+                <div
+                  className="transition-all duration-500 rounded-r-full"
+                  style={{
+                    width: `${weeklyTrend.weekendPct}%`,
+                    backgroundColor: 'var(--m3-tertiary)',
+                  }}
+                  title={`Weekends: ${weeklyTrend.weekendPct}%`}
+                />
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div
+                className="p-3 rounded-2xl flex items-center justify-between"
+                style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+              >
+                <div>
+                  <div
+                    className="flex items-center gap-1.5 text-xs font-semibold"
+                    style={{ color: 'var(--m3-on-surface-variant)' }}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--m3-primary)' }} />
+                    Weekdays (Mon–Fri)
+                  </div>
+                  <div className="text-lg font-bold tabular-nums mt-0.5">
+                    {millisecondsToHoursMinutes(weeklyTrend.weekdayTotal)}
+                  </div>
+                </div>
+                <span className="text-xs font-bold tabular-nums opacity-80">{weeklyTrend.weekdayPct}%</span>
+              </div>
+
+              <div
+                className="p-3 rounded-2xl flex items-center justify-between"
+                style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+              >
+                <div>
+                  <div
+                    className="flex items-center gap-1.5 text-xs font-semibold"
+                    style={{ color: 'var(--m3-on-surface-variant)' }}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--m3-tertiary)' }} />
+                    Weekends (Sat–Sun)
+                  </div>
+                  <div className="text-lg font-bold tabular-nums mt-0.5">
+                    {millisecondsToHoursMinutes(weeklyTrend.weekendTotal)}
+                  </div>
+                </div>
+                <span className="text-xs font-bold tabular-nums opacity-80">{weeklyTrend.weekendPct}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Day-by-Day Rankings & Deep Dive */}
+          <div
+            className="rounded-[28px] p-5 space-y-4 shadow-sm"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold">Day-by-Day Details</h2>
+                <p className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Sorted {trendSortBy === 'productivity' ? 'by productivity (#1 to #7)' : 'by day (Monday to Sunday)'}
+                </p>
+              </div>
+
+              {/* Sort toggle */}
+              <div
+                className="flex items-center p-0.5 rounded-full text-xs font-semibold"
+                style={{ backgroundColor: 'var(--m3-surface-container-high)' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setTrendSortBy('day')}
+                  className="px-2.5 py-1 rounded-full cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: trendSortBy === 'day' ? 'var(--m3-primary)' : 'transparent',
+                    color: trendSortBy === 'day' ? 'var(--m3-on-primary)' : 'var(--m3-on-surface-variant)',
+                  }}
+                >
+                  By Day
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTrendSortBy('productivity')}
+                  className="px-2.5 py-1 rounded-full cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: trendSortBy === 'productivity' ? 'var(--m3-primary)' : 'transparent',
+                    color: trendSortBy === 'productivity' ? 'var(--m3-on-primary)' : 'var(--m3-on-surface-variant)',
+                  }}
+                >
+                  Ranked
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {displayedRankings.map((dayData, idx) => {
+                const isSelected = selectedTrendDow === dayData.dow;
+                const isPeak = mostProductive && dayData.dow === mostProductive.dow;
+                const relPct = maxChartValue > 0 ? Math.round((dayData.minutes / maxChartValue) * 100) : 0;
+                const dayQSum = dayData.q1 + dayData.q2 + dayData.q3 + dayData.q4;
+
+                return (
+                  <div
+                    key={dayData.dow}
+                    onClick={() => setSelectedTrendDow(isSelected ? null : dayData.dow)}
+                    className="p-3.5 rounded-2xl cursor-pointer transition-all hover:scale-[1.01]"
+                    style={{
+                      backgroundColor: isSelected
+                        ? 'var(--m3-surface-container-high)'
+                        : 'var(--m3-surface-container-low)',
+                      border: isPeak ? '1px solid var(--m3-primary)' : '1px solid transparent',
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                          style={{
+                            backgroundColor: isPeak
+                              ? 'var(--m3-primary)'
+                              : 'var(--m3-surface-container-highest)',
+                            color: isPeak ? 'var(--m3-on-primary)' : 'var(--m3-on-surface)',
+                          }}
+                        >
+                          {trendSortBy === 'productivity' ? idx + 1 : dayData.shortLabel.slice(0, 2)}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-sm">{dayData.fullLabel}</span>
+                            {isPeak && (
+                              <span
+                                className="px-1.5 py-0.5 rounded-md text-[10px] font-extrabold"
+                                style={{
+                                  backgroundColor: 'var(--m3-primary-container)',
+                                  color: 'var(--m3-on-primary-container)',
+                                }}
+                              >
+                                PEAK
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] opacity-75">
+                            {dayData.activeDaysCount} active days · {dayData.sharePct}% of week
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-extrabold tabular-nums">
+                          {millisecondsToHoursMinutes(dayData.avgMs)}{' '}
+                          <span className="text-[10px] font-normal opacity-70">avg</span>
+                        </div>
+                        <div className="text-[11px] opacity-70 tabular-nums">
+                          {millisecondsToHoursMinutes(dayData.totalMs)} total
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Progress visual bar */}
+                    <div className="h-1.5 w-full rounded-full bg-[var(--m3-surface-container-highest)] mt-2.5 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${relPct}%`,
+                          backgroundColor: isPeak ? 'var(--m3-primary)' : 'var(--m3-tertiary)',
+                        }}
+                      />
+                    </div>
+
+                    {/* Expanded day details */}
+                    {isSelected && (
+                      <div className="mt-3.5 pt-3 border-t border-[var(--m3-outline-variant)]/20 space-y-3">
+                        {/* Time of day mini bar */}
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] font-semibold mb-1">
+                            <span style={{ color: 'var(--m3-on-surface-variant)' }}>
+                              Time of day breakdown
+                            </span>
+                            <span className="tabular-nums">
+                              {dayData.tasksDone > 0 ? `${dayData.tasksDone} tasks done` : '0 tasks'}
+                            </span>
+                          </div>
+                          <div className="h-2 w-full rounded-full overflow-hidden flex gap-0.5 bg-[var(--m3-surface-container)]">
+                            {dayQSum > 0 ? (
+                              <>
+                                <div
+                                  style={{
+                                    width: `${(dayData.q1 / dayQSum) * 100}%`,
+                                    backgroundColor: 'var(--m3-primary)',
+                                  }}
+                                  title={`Morning: ${millisecondsToHoursMinutes(dayData.q1)}`}
+                                />
+                                <div
+                                  style={{
+                                    width: `${(dayData.q2 / dayQSum) * 100}%`,
+                                    backgroundColor: 'var(--m3-tertiary)',
+                                  }}
+                                  title={`Afternoon: ${millisecondsToHoursMinutes(dayData.q2)}`}
+                                />
+                                <div
+                                  style={{
+                                    width: `${(dayData.q3 / dayQSum) * 100}%`,
+                                    backgroundColor: 'var(--m3-secondary)',
+                                  }}
+                                  title={`Evening: ${millisecondsToHoursMinutes(dayData.q3)}`}
+                                />
+                                <div
+                                  style={{
+                                    width: `${(dayData.q4 / dayQSum) * 100}%`,
+                                    backgroundColor: 'var(--m3-outline)',
+                                  }}
+                                  title={`Night: ${millisecondsToHoursMinutes(dayData.q4)}`}
+                                />
+                              </>
+                            ) : (
+                              <div className="w-full bg-[var(--m3-outline-variant)] opacity-20" />
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Topics studied on this day */}
+                        {dayData.topicsMap.size > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            <span
+                              className="text-[11px] font-bold"
+                              style={{ color: 'var(--m3-on-surface-variant)' }}
+                            >
+                              Top topics on {dayData.fullLabel}s
+                            </span>
+                            <div className="space-y-1">
+                              {Array.from(dayData.topicsMap.entries())
+                                .sort((a, b) => b[1] - a[1])
+                                .map(([topicId, ms]) => {
+                                  const topic = topics.find((t) => t.id === topicId);
+                                  return (
+                                    <div
+                                      key={topicId}
+                                      className="flex items-center justify-between p-2 rounded-xl text-xs font-semibold"
+                                      style={{ backgroundColor: 'var(--m3-surface-container)' }}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <TopicShapeIcon
+                                          shape={topic?.shape ?? 'CIRCLE'}
+                                          color={topic?.color ?? '#ffffff'}
+                                          size={14}
+                                        />
+                                        <span>{topic?.name ?? 'Topic'}</span>
+                                      </div>
+                                      <span className="tabular-nums font-bold">
+                                        {millisecondsToHoursMinutes(ms)}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Actionable Insights Card */}
+          <div
+            className="rounded-[28px] p-5 space-y-3 shadow-sm"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} style={{ color: 'var(--m3-primary)' }} />
+              <h2 className="text-base font-bold">Productivity Insights</h2>
+            </div>
+            <div className="space-y-2 text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+              {mostProductive && mostProductive.totalMs > 0 ? (
+                <>
+                  <p className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                    🔥 <strong>Peak Power:</strong> {mostProductive.fullLabel} is your most focused day of the week ({millisecondsToHoursMinutes(mostProductive.avgMs)} avg). Schedule your hardest blitz sessions and high-priority milestones on this day!
+                  </p>
+                  {leastProductive && leastProductive.dow !== mostProductive.dow && (
+                    <p className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                      ☕ <strong>Rest & Planning:</strong> {leastProductive.fullLabel} has your lowest focus time ({millisecondsToHoursMinutes(leastProductive.avgMs)} avg). Perfect for backlog grooming, planning your upcoming week, or restorative downtime.
+                    </p>
+                  )}
+                  <p className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                    ⏰ <strong>Prime Window:</strong> Your concentration peaks in the {weeklyTrend.peakQuarter}. Protect this window from interruptions!
+                  </p>
+                </>
+              ) : (
+                <p className="p-3 rounded-2xl" style={{ backgroundColor: 'var(--m3-surface-container-low)' }}>
+                  💡 Log your daily focus pomodoros to generate personalized insights on your peak hours and high-performance days.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (subScreen !== 'main') {
     const title =
       subScreen === 'last_week'
@@ -306,7 +1096,7 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
     return (
       <div
         className="min-h-screen pb-28 px-4"
-        style={{ backgroundColor: 'var(--m3-surface-container)' }}
+        style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}
       >
         <div className="max-w-2xl mx-auto pt-5 space-y-4">
           <div className="flex items-center gap-3">
@@ -466,7 +1256,7 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
   return (
     <div
       className="min-h-screen pb-28 px-4"
-      style={{ backgroundColor: 'var(--m3-surface-container)' }}
+      style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}
     >
       <div className="max-w-2xl mx-auto pt-6 space-y-5">
         <header className="text-center pb-1">
@@ -673,6 +1463,155 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
               <span>More</span>
             </div>
           </div>
+        </section>
+
+        {/* Weekly Trend Section */}
+        <section>
+          <button
+            type="button"
+            onClick={() => onNavigate('weekly_trend')}
+            className="w-full text-left rounded-[24px] p-5 space-y-3.5 transition-all hover:scale-[1.005] hover:shadow-md cursor-pointer border border-[var(--m3-outline-variant)]/20"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                  style={{
+                    backgroundColor: 'var(--m3-primary-container)',
+                    color: 'var(--m3-on-primary-container)',
+                  }}
+                >
+                  <TrendingUp size={18} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold">Weekly Trend</h2>
+                  <p className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                    Day-of-week productivity distribution
+                  </p>
+                </div>
+              </div>
+
+              {weeklyTrend.mostProductive && weeklyTrend.mostProductive.totalMs > 0 ? (
+                <span
+                  className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-xs"
+                  style={{
+                    backgroundColor: 'var(--m3-primary)',
+                    color: 'var(--m3-on-primary)',
+                  }}
+                >
+                  <Award size={13} />
+                  Peak: {weeklyTrend.mostProductive.fullLabel}
+                </span>
+              ) : (
+                <span
+                  className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                  style={{
+                    backgroundColor: 'var(--m3-surface-container-high)',
+                    color: 'var(--m3-on-surface-variant)',
+                  }}
+                >
+                  View distribution
+                </span>
+              )}
+            </div>
+
+            {/* Quick metrics row */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+              <div
+                className="p-3 rounded-2xl"
+                style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+              >
+                <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Most Productive
+                </div>
+                <div className="text-base font-extrabold mt-0.5" style={{ color: 'var(--m3-primary)' }}>
+                  {weeklyTrend.mostProductive && weeklyTrend.mostProductive.totalMs > 0
+                    ? weeklyTrend.mostProductive.fullLabel
+                    : '—'}
+                </div>
+                <div className="text-[11px] opacity-75 tabular-nums">
+                  {weeklyTrend.mostProductive && weeklyTrend.mostProductive.totalMs > 0
+                    ? `${millisecondsToHoursMinutes(weeklyTrend.mostProductive.avgMs)} avg`
+                    : 'No sessions'}
+                </div>
+              </div>
+
+              <div
+                className="p-3 rounded-2xl"
+                style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+              >
+                <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Weekday vs Weekend
+                </div>
+                <div className="text-base font-extrabold mt-0.5 tabular-nums">
+                  {weeklyTrend.weekdayPct}% / {weeklyTrend.weekendPct}%
+                </div>
+                <div className="text-[11px] opacity-75">
+                  {weeklyTrend.weekdayPct >= 65 ? 'Weekday focused' : 'Evenly distributed'}
+                </div>
+              </div>
+
+              <div
+                className="p-3 rounded-2xl col-span-2 sm:col-span-1"
+                style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+              >
+                <div className="text-[11px] font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Peak Focus Window
+                </div>
+                <div className="text-sm font-bold truncate mt-1">
+                  {weeklyTrend.peakQuarter}
+                </div>
+                <div className="text-[11px] opacity-75">
+                  Best time of day
+                </div>
+              </div>
+            </div>
+
+            {/* Mini Day-of-Week Chart */}
+            <div className="h-28 w-full pointer-events-none pt-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weeklyTrend.daysList} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                  <XAxis
+                    dataKey="shortLabel"
+                    tick={{ fontSize: 11, fontWeight: 600, fill: 'var(--m3-outline)' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis hide />
+                  <Bar dataKey="minutes" radius={[6, 6, 2, 2]}>
+                    {weeklyTrend.daysList.map((entry) => (
+                      <Cell
+                        key={`cell-${entry.dow}`}
+                        fill={
+                          weeklyTrend.mostProductive &&
+                          entry.dow === weeklyTrend.mostProductive.dow &&
+                          entry.minutes > 0
+                            ? 'var(--m3-primary)'
+                            : entry.minutes > 0
+                              ? 'var(--m3-primary-container)'
+                              : 'var(--m3-surface-container-high)'
+                        }
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div
+              className="flex items-center justify-between pt-1 text-xs font-semibold"
+              style={{ color: 'var(--m3-primary)' }}
+            >
+              <span className="flex items-center gap-1.5" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                <Calendar size={14} />
+                Identify habits & peak days
+              </span>
+              <span className="flex items-center gap-1 font-bold">
+                Explore Weekly Trend <ChevronRight size={14} />
+              </span>
+            </div>
+          </button>
         </section>
 
         {/* Segmented Period Cards */}
