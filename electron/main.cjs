@@ -442,6 +442,13 @@ function createTaskbarIsland() {
 
   void islandWindow.loadFile(path.join(__dirname, 'taskbar-island.html'));
 
+  islandWindow.webContents.on('did-finish-load', () => {
+    sendIslandConfig();
+    if (lastIslandState && islandWindow && !islandWindow.isDestroyed()) {
+      islandWindow.webContents.send('zonein-island:state', lastIslandState);
+    }
+  });
+
   islandWindow.once('ready-to-show', () => {
     sendIslandConfig();
     if (lastIslandState && islandWindow && !islandWindow.isDestroyed()) {

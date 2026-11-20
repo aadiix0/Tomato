@@ -47,7 +47,6 @@
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.015) 48%, rgba(0, 0, 0, 0.25) 100%),
         var(--pill-bg);
-      border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.65),
         0 0 0 0.5px rgba(0, 0, 0, 0.92),
@@ -56,48 +55,38 @@
       cursor: pointer;
       transition:
         transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-        box-shadow 0.28s ease,
-        border-color 0.28s ease;
+        box-shadow 0.28s ease;
       overflow: hidden;
     }
 
-    /* Outer border = Daily Focus Goal Progress */
-    .island-shell::before {
-      content: '';
+    /* Outer SVG ring = Daily Focus Goal Progress */
+    .outer-svg {
       position: absolute;
       inset: 0;
-      border-radius: 13px;
-      padding: 1.6px;
-      background: conic-gradient(
-        from -90deg,
-        var(--goal-1) 0deg,
-        var(--goal-2) calc(var(--goal-pct, 0) * 3.6deg),
-        rgba(255, 255, 255, 0.1) calc(var(--goal-pct, 0) * 3.6deg)
-      );
-      -webkit-mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
+      width: 100%;
+      height: 100%;
       pointer-events: none;
-      opacity: 0.85;
-      transition: opacity 0.3s ease;
+      z-index: 4;
+      overflow: visible;
     }
 
-    .island-shell.no-goal::before {
-      background: rgba(255, 255, 255, 0.14);
-      opacity: 0.6;
+    .outer-track {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.16);
+      stroke-width: 2;
     }
 
-    .island-shell.goal-complete::before {
-      background: conic-gradient(
-        from -90deg,
-        #34d399 0deg,
-        #2dd4bf 180deg,
-        #fbbf24 360deg
-      );
-      opacity: 1;
-      filter: drop-shadow(0 0 3px var(--goal-glow));
+    .outer-progress {
+      fill: none;
+      stroke: url(#goalGrad);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+      filter: drop-shadow(0 0 3.5px var(--goal-glow));
+    }
+
+    .island-shell.goal-complete .outer-progress {
+      filter: drop-shadow(0 0 5px rgba(52, 211, 153, 0.85));
     }
 
     .island-shell:hover {
@@ -447,6 +436,24 @@
 </head>
 <body>
   <div id="island" class="island-shell paused no-goal" title="Click to open Zonein · Right-click for options">
+    <svg id="outerSvg" class="outer-svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="goalGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#fbbf24" />
+          <stop offset="55%" stop-color="#34d399" />
+          <stop offset="100%" stop-color="#2dd4bf" />
+        </linearGradient>
+      </defs>
+      <path id="outerTrack" class="outer-track" />
+      <path
+        id="outerProgress"
+        class="outer-progress"
+        pathLength="100"
+        stroke-dasharray="100"
+        stroke-dashoffset="100"
+        style="opacity: 0;"
+      />
+    </svg>
     <div class="island-aura"></div>
     <div id="resizeLeft" class="resize-handle left" title="Drag to resize width"></div>
     <div id="resizeRight" class="resize-handle right" title="Drag to resize width"></div>
@@ -504,6 +511,9 @@
 
   <script>
     const island = document.getElementById('island');
+    const outerSvg = document.getElementById('outerSvg');
+    const outerTrack = document.getElementById('outerTrack');
+    const outerProgress = document.getElementById('outerProgress');
     const resizeLeft = document.getElementById('resizeLeft');
     const resizeRight = document.getElementById('resizeRight');
     const timerBadge = document.getElementById('timerBadge');
@@ -572,9 +582,21 @@
       badgeProgress.setAttribute('d', d);
     }
 
+    function syncOuterGeometry() {
+      const rect = island.getBoundingClientRect();
+      const w = Math.max(120, Math.round(rect.width));
+      const h = Math.max(30, Math.round(rect.height));
+      outerSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      const d = buildRoundedRectPath(w, h, 12.5, 1.5);
+      outerTrack.setAttribute('d', d);
+      outerProgress.setAttribute('d', d);
+    }
+
     if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(() => syncBadgeGeometry());
-      ro.observe(timerBadge);
+      const badgeRo = new ResizeObserver(() => syncBadgeGeometry());
+      badgeRo.observe(timerBadge);
+      const outerRo = new ResizeObserver(() => syncOuterGeometry());
+      outerRo.observe(island);
     }
 
     function setThemeForMode(mode) {
@@ -682,25 +704,35 @@
         badgeProgress.style.strokeDashoffset = String(100 * (1 - clamped));
       }
 
-      // Outer capsule border = Daily Focus Goal progress
+      // Outer SVG rounded-rect ring = Daily Focus Goal progress
       const focusGoalMs = Number(state.focusGoalMs || 0);
       const todayFocusMs = Number(state.todayFocusMs || 0);
       if (focusGoalMs <= 0) {
         island.classList.add('no-goal');
         island.classList.remove('goal-complete');
-        island.style.setProperty('--goal-pct', '0');
+        outerProgress.style.opacity = '0';
+        outerProgress.style.strokeDashoffset = '100';
       } else {
         island.classList.remove('no-goal');
-        const goalPct = Math.max(0, Math.min(100, (todayFocusMs / focusGoalMs) * 100));
-        island.classList.toggle('goal-complete', goalPct >= 100);
-        island.style.setProperty('--goal-pct', goalPct.toFixed(2));
+        const rawGoalPct = Math.max(0, Math.min(100, (todayFocusMs / focusGoalMs) * 100));
+        island.classList.toggle('goal-complete', rawGoalPct >= 100);
+        if (todayFocusMs <= 0) {
+          outerProgress.style.opacity = '0';
+          outerProgress.style.strokeDashoffset = '100';
+        } else {
+          const visualPct = Math.max(1.8, rawGoalPct);
+          outerProgress.style.opacity = '1';
+          outerProgress.style.strokeDashoffset = String(100 - visualPct);
+        }
       }
 
       refreshWideDetail();
       syncBadgeGeometry();
+      syncOuterGeometry();
     }
 
     syncBadgeGeometry();
+    syncOuterGeometry();
 
     if (window.islandBridge) {
       window.islandBridge.onStateUpdate(applyState);
@@ -710,6 +742,7 @@
     window.addEventListener('resize', () => {
       refreshWideDetail();
       syncBadgeGeometry();
+      syncOuterGeometry();
     });
 
     toggleBtn.addEventListener('click', (e) => {
