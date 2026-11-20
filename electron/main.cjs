@@ -9,6 +9,8 @@ let tray = null;
 let staticServer = null;
 let isQuitting = false;
 let lastIslandState = null;
+let isIslandMenuOpen = false;
+let islandKeepAliveTimer = null;
 
 const MIN_ISLAND_WIDTH = 206;
 const DEFAULT_ISLAND_WIDTH = 232;
@@ -162,14 +164,36 @@ function shouldShowIsland() {
 
 function raiseIslandAboveTaskbar() {
   if (!islandWindow || islandWindow.isDestroyed() || !islandWindow.isVisible()) return;
-  islandWindow.setAlwaysOnTop(true, 'screen-saver');
+  if (isIslandMenuOpen) return;
+  islandWindow.setAlwaysOnTop(true, 'screen-saver', 1);
   if (typeof islandWindow.moveTop === 'function') {
     islandWindow.moveTop();
   }
 }
 
+function stopIslandKeepAlive() {
+  if (islandKeepAliveTimer) {
+    clearInterval(islandKeepAliveTimer);
+    islandKeepAliveTimer = null;
+  }
+}
+
+function startIslandKeepAlive() {
+  stopIslandKeepAlive();
+  islandKeepAliveTimer = setInterval(() => {
+    if (isQuitting || !islandWindow || islandWindow.isDestroyed() || isIslandMenuOpen) return;
+    if (shouldShowIsland()) {
+      if (!islandWindow.isVisible()) {
+        islandWindow.showInactive();
+      }
+      raiseIslandAboveTaskbar();
+    }
+  }, 450);
+}
+
 function syncIslandVisibility() {
   if (!islandWindow || islandWindow.isDestroyed()) return;
+  if (isIslandMenuOpen) return;
   const show = shouldShowIsland();
   if (show) {
     if (!islandWindow.isVisible()) {
@@ -177,7 +201,7 @@ function syncIslandVisibility() {
     }
     raiseIslandAboveTaskbar();
     setTimeout(() => {
-      if (shouldShowIsland()) raiseIslandAboveTaskbar();
+      if (!isIslandMenuOpen && shouldShowIsland()) raiseIslandAboveTaskbar();
     }, 65);
   } else if (islandWindow.isVisible()) {
     islandWindow.hide();
@@ -267,7 +291,10 @@ function resetIslandLayout() {
 }
 
 function openIslandContextMenu() {
-  if (!islandWindow || islandWindow.isDestroyed()) return;
+  if (!islandWindow || islandWindow.isDestroyed() || isIslandMenuOpen) return;
+  isIslandMenuOpen = true;
+  islandWindow.setFocusable(true);
+  islandWindow.focus();
   const w = clampWidth(islandConfig.customWidth);
   const menu = Menu.buildFromTemplate([
     {
@@ -403,7 +430,25 @@ function openIslandContextMenu() {
     },
   ]);
 
-  menu.popup({ window: islandWindow });
+  setTimeout(() => {
+    if (!islandWindow || islandWindow.isDestroyed()) {
+      isIslandMenuOpen = false;
+      return;
+    }
+    menu.popup({
+      window: islandWindow,
+      callback: () => {
+        isIslandMenuOpen = false;
+        if (islandWindow && !islandWindow.isDestroyed()) {
+          islandWindow.setFocusable(false);
+        }
+        syncIslandVisibility();
+        setTimeout(() => {
+          if (!isIslandMenuOpen) syncIslandVisibility();
+        }, 70);
+      },
+    });
+  }, 20);
 }
 
 function createTaskbarIsland() {
@@ -437,7 +482,7 @@ function createTaskbarIsland() {
     },
   });
 
-  islandWindow.setAlwaysOnTop(true, 'screen-saver');
+  islandWindow.setAlwaysOnTop(true, 'screen-saver', 1);
   islandWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
 
   void islandWindow.loadFile(path.join(__dirname, 'taskbar-island.html'));
@@ -455,9 +500,22 @@ function createTaskbarIsland() {
       islandWindow.webContents.send('zonein-island:state', lastIslandState);
     }
     syncIslandVisibility();
+    startIslandKeepAlive();
+  });
+
+  islandWindow.on('blur', () => {
+    if (!isIslandMenuOpen && shouldShowIsland()) {
+      setTimeout(() => {
+        if (!isIslandMenuOpen && shouldShowIsland()) {
+          raiseIslandAboveTaskbar();
+        }
+      }, 60);
+    }
   });
 
   islandWindow.on('closed', () => {
+    stopIslandKeepAlive();
+    isIslandMenuOpen = false;
     islandWindow = null;
   });
 }
@@ -756,6 +814,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  stopIslandKeepAlive();
   if (islandWindow && !islandWindow.isDestroyed()) {
     islandWindow.destroy();
   }
