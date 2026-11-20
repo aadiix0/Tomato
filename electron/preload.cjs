@@ -16,4 +16,11 @@ contextBridge.exposeInMainWorld('electronIsland', {
   },
   setVisible: (visible) => ipcRenderer.invoke('zonein-island:set-visible', visible),
   getVisible: () => ipcRenderer.invoke('zonein-island:get-visible'),
+  setVisibilityMode: (mode) => ipcRenderer.invoke('zonein-island:set-visibility-mode', mode),
+  getVisibilityMode: () => ipcRenderer.invoke('zonein-island:get-visibility-mode'),
+  onVisibilityModeChanged: (callback) => {
+    const handler = (_event, mode) => callback(mode);
+    ipcRenderer.on('zonein-island:visibility-mode-changed', handler);
+    return () => ipcRenderer.removeListener('zonein-island:visibility-mode-changed', handler);
+  },
 });

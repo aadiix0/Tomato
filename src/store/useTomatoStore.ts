@@ -839,6 +839,23 @@ export function useTomatoStore() {
     return Math.min(1, Math.max(0, 1 - timerState.remainingTime / timerState.totalTime));
   }, [timerState]);
 
+  const todayFocusMs = useMemo(() => {
+    const todayKey = toLocalDateKey();
+    const savedToday = stats
+      .filter((s) => s.date === todayKey)
+      .reduce(
+        (sum, s) => sum + s.focusTimeQ1 + s.focusTimeQ2 + s.focusTimeQ3 + s.focusTimeQ4,
+        0
+      );
+
+    let unsavedFocusMs = 0;
+    if (timerState.timerMode === 'FOCUS' && startTimeRef.current !== 0) {
+      const currentElapsed = getElapsedInInterval();
+      unsavedFocusMs = Math.max(0, currentElapsed - lastSavedDurationRef.current);
+    }
+    return savedToday + unsavedFocusMs;
+  }, [stats, timerState.timerMode, timerState.remainingTime, timerState.timeStr, getElapsedInInterval]);
+
   return {
     topics,
     currentTopic,
@@ -852,6 +869,7 @@ export function useTomatoStore() {
     timerState,
     sessionActive,
     progress,
+    todayFocusMs,
     lastModified: lastModifiedRef.current,
     isPristine,
     toggleTimer,

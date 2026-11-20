@@ -14,6 +14,7 @@ import {
   Layers,
   Maximize2,
   Palette,
+  PanelBottom,
   Pencil,
   Plus,
   SlidersHorizontal,
@@ -1851,6 +1852,133 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     );
   }
 
+  if (subScreen === 'taskbar_island') {
+    const activeMode = settings.taskbarIslandMode ?? 'always';
+    const isElectronDesktop = Boolean(window.electronIsland);
+    const modeOptions: {
+      id: 'always' | 'when_closed_running' | 'when_closed' | 'off';
+      title: string;
+      desc: string;
+    }[] = [
+      {
+        id: 'always',
+        title: 'Always show on taskbar',
+        desc: 'Keep the live taskbar capsule visible at all times, including while Zonein is open.',
+      },
+      {
+        id: 'when_closed_running',
+        title: 'Show when closed while running',
+        desc: 'Appear on the taskbar only when Zonein is closed or minimized to tray and a timer is actively running.',
+      },
+      {
+        id: 'when_closed',
+        title: 'Show whenever minimized or closed',
+        desc: 'Appear whenever Zonein is minimized or closed to the tray, whether running or paused.',
+      },
+      {
+        id: 'off',
+        title: 'Off (Hidden)',
+        desc: 'Do not show the taskbar timer capsule.',
+      },
+    ];
+
+    return (
+      <div
+        className="min-h-screen pb-28 px-4"
+        style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}
+      >
+        <div className="max-w-2xl mx-auto pt-5 space-y-4">
+          {renderHeader('Taskbar Island', 'main')}
+
+          <div
+            className="rounded-[24px] p-5 space-y-2"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="font-bold text-sm">Visibility Behavior</div>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--m3-on-surface-variant)' }}>
+              Choose when the live taskbar capsule appears on your desktop taskbar.
+              {!isElectronDesktop && ' This preference applies when running the Zonein desktop app.'}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            {modeOptions.map((opt, idx) => {
+              const selected = activeMode === opt.id;
+              const radiusClass =
+                idx === 0
+                  ? 'rounded-t-[24px] rounded-b-[6px]'
+                  : idx === modeOptions.length - 1
+                    ? 'rounded-t-[6px] rounded-b-[24px]'
+                    : 'rounded-[6px]';
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => onUpdateSettings({ taskbarIslandMode: opt.id })}
+                  className={`w-full flex items-center justify-between gap-4 p-5 ${radiusClass} text-left cursor-pointer transition-all hover:opacity-95`}
+                  style={{
+                    backgroundColor: selected
+                      ? 'var(--m3-primary-container)'
+                      : 'var(--m3-surface-bright)',
+                    color: selected
+                      ? 'var(--m3-on-primary-container)'
+                      : 'var(--m3-on-surface)',
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm">{opt.title}</div>
+                    <div
+                      className="text-xs mt-0.5 leading-relaxed"
+                      style={{
+                        color: selected
+                          ? 'var(--m3-on-primary-container)'
+                          : 'var(--m3-on-surface-variant)',
+                        opacity: selected ? 0.9 : 1,
+                      }}
+                    >
+                      {opt.desc}
+                    </div>
+                  </div>
+                  <div
+                    className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors"
+                    style={{
+                      borderColor: selected ? 'var(--m3-primary)' : 'var(--m3-outline)',
+                      backgroundColor: selected ? 'var(--m3-primary)' : 'transparent',
+                      color: selected ? 'var(--m3-on-primary)' : 'transparent',
+                    }}
+                  >
+                    {selected && <Check size={14} strokeWidth={3} />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            className="rounded-[24px] p-5 space-y-1.5"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="font-bold text-xs uppercase tracking-wider" style={{ color: 'var(--m3-outline)' }}>
+              Taskbar Controls Tip
+            </div>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--m3-on-surface-variant)' }}>
+              The Taskbar Island is locked by default so hovering or clicking never moves it by accident.
+              Right-click the capsule on your taskbar to unlock it, drag its position, stretch its width,
+              or choose whether wide mode displays your active task or daily goal progress.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const islandModeLabels: Record<NonNullable<SettingsState['taskbarIslandMode']>, string> = {
+    always: 'Always shown on taskbar',
+    when_closed_running: 'Shown when closed while running',
+    when_closed: 'Shown when minimized or closed',
+    off: 'Hidden',
+  };
+
   const primaryItems: {
     route: SettingsSubScreen;
     icon: React.ReactNode;
@@ -1868,6 +1996,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       icon: <Clock size={20} />,
       title: 'Timer',
       subtitle: 'Daily focus goal',
+    },
+    {
+      route: 'taskbar_island',
+      icon: <PanelBottom size={20} />,
+      title: 'Taskbar Island',
+      subtitle: islandModeLabels[settings.taskbarIslandMode ?? 'always'],
     },
     {
       route: 'alarm',

@@ -10,9 +10,14 @@ let staticServer = null;
 let isQuitting = false;
 let lastIslandState = null;
 
-const ISLAND_WIDTH = 210;
+const MIN_ISLAND_WIDTH = 206;
+const DEFAULT_ISLAND_WIDTH = 232;
+const MAX_ISLAND_WIDTH = 360;
 const ISLAND_HEIGHT = 44;
 const DEFAULT_TRAY_RIGHT_OFFSET = 225;
+
+const VALID_VISIBILITY_MODES = ['always', 'when_closed_running', 'when_closed', 'off'];
+const VALID_WIDE_DETAIL_MODES = ['task', 'goal', 'off'];
 
 const PREFERRED_PORTS = [47831, 47832, 47833, 47834, 47835, 0];
 
@@ -55,20 +60,42 @@ function getIslandConfigPath() {
   return path.join(app.getPath('userData'), 'zonein-island-config.json');
 }
 
+function clampWidth(w) {
+  const num = Number(w);
+  if (!Number.isFinite(num)) return DEFAULT_ISLAND_WIDTH;
+  return Math.max(MIN_ISLAND_WIDTH, Math.min(MAX_ISLAND_WIDTH, Math.round(num)));
+}
+
 function loadIslandConfig() {
   try {
     const cfgPath = getIslandConfigPath();
     if (fs.existsSync(cfgPath)) {
       const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      const fallbackMode = parsed.visible === false ? 'off' : 'always';
+      const visibilityMode = VALID_VISIBILITY_MODES.includes(parsed.visibilityMode)
+        ? parsed.visibilityMode
+        : fallbackMode;
+      const wideDetailMode = VALID_WIDE_DETAIL_MODES.includes(parsed.wideDetailMode)
+        ? parsed.wideDetailMode
+        : 'task';
       return {
-        visible: parsed.visible !== false,
+        visibilityMode,
+        locked: parsed.locked !== false,
         customX: typeof parsed.customX === 'number' ? parsed.customX : null,
+        customWidth: clampWidth(parsed.customWidth ?? DEFAULT_ISLAND_WIDTH),
+        wideDetailMode,
       };
     }
   } catch {
     // ignore malformed config
   }
-  return { visible: true, customX: null };
+  return {
+    visibilityMode: 'always',
+    locked: true,
+    customX: null,
+    customWidth: DEFAULT_ISLAND_WIDTH,
+    wideDetailMode: 'task',
+  };
 }
 
 function saveIslandConfig(config) {
@@ -79,19 +106,304 @@ function saveIslandConfig(config) {
   }
 }
 
-let islandConfig = { visible: true, customX: null };
+let islandConfig = {
+  visibilityMode: 'always',
+  locked: true,
+  customX: null,
+  customWidth: DEFAULT_ISLAND_WIDTH,
+  wideDetailMode: 'task',
+};
 
 function computeIslandBounds() {
   const display = screen.getPrimaryDisplay();
   const { bounds, workArea } = display;
+  const width = clampWidth(islandConfig.customWidth);
   const taskbarHeight = Math.max(40, bounds.height - workArea.height);
   const y = bounds.y + bounds.height - Math.round((taskbarHeight + ISLAND_HEIGHT) / 2);
-  const defaultX = bounds.x + bounds.width - ISLAND_WIDTH - DEFAULT_TRAY_RIGHT_OFFSET;
+  const defaultX = bounds.x + bounds.width - width - DEFAULT_TRAY_RIGHT_OFFSET;
   const rawX = typeof islandConfig.customX === 'number' ? islandConfig.customX : defaultX;
   const minX = bounds.x + 8;
-  const maxX = bounds.x + bounds.width - ISLAND_WIDTH - 8;
+  const maxX = bounds.x + bounds.width - width - 8;
   const x = Math.max(minX, Math.min(maxX, Math.round(rawX)));
-  return { x, y, width: ISLAND_WIDTH, height: ISLAND_HEIGHT };
+  return { x, y, width, height: ISLAND_HEIGHT };
+}
+
+function sendIslandConfig() {
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.webContents.send('zonein-island:config', {
+      locked: islandConfig.locked,
+      customWidth: clampWidth(islandConfig.customWidth),
+      wideDetailMode: islandConfig.wideDetailMode,
+      visibilityMode: islandConfig.visibilityMode,
+    });
+  }
+}
+
+function isMainWindowForegroundOpen() {
+  return Boolean(
+    mainWindow &&
+      !mainWindow.isDestroyed() &&
+      mainWindow.isVisible() &&
+      !mainWindow.isMinimized()
+  );
+}
+
+function shouldShowIsland() {
+  const mode = islandConfig.visibilityMode || 'always';
+  if (mode === 'off') return false;
+  if (mode === 'always') return true;
+  const mainOpen = isMainWindowForegroundOpen();
+  if (mode === 'when_closed') return !mainOpen;
+  if (mode === 'when_closed_running') {
+    return !mainOpen && Boolean(lastIslandState && lastIslandState.timerRunning);
+  }
+  return true;
+}
+
+function raiseIslandAboveTaskbar() {
+  if (!islandWindow || islandWindow.isDestroyed() || !islandWindow.isVisible()) return;
+  islandWindow.setAlwaysOnTop(true, 'screen-saver');
+  if (typeof islandWindow.moveTop === 'function') {
+    islandWindow.moveTop();
+  }
+}
+
+function syncIslandVisibility() {
+  if (!islandWindow || islandWindow.isDestroyed()) return;
+  const show = shouldShowIsland();
+  if (show) {
+    if (!islandWindow.isVisible()) {
+      islandWindow.showInactive();
+    }
+    raiseIslandAboveTaskbar();
+    setTimeout(() => {
+      if (shouldShowIsland()) raiseIslandAboveTaskbar();
+    }, 65);
+  } else if (islandWindow.isVisible()) {
+    islandWindow.hide();
+  }
+}
+
+function setVisibilityMode(mode, notifyMain = true) {
+  const nextMode = VALID_VISIBILITY_MODES.includes(mode) ? mode : 'always';
+  islandConfig.visibilityMode = nextMode;
+  saveIslandConfig(islandConfig);
+  syncIslandVisibility();
+  sendIslandConfig();
+  updateTrayMenu();
+  if (notifyMain && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('zonein-island:visibility-mode-changed', nextMode);
+  }
+  return nextMode;
+}
+
+function applyPresetWidth(targetWidth) {
+  const display = screen.getPrimaryDisplay();
+  const { bounds } = display;
+  const nextWidth = clampWidth(targetWidth);
+  const prevBounds = islandWindow && !islandWindow.isDestroyed()
+    ? islandWindow.getBounds()
+    : computeIslandBounds();
+
+  const rightEdge = prevBounds.x + prevBounds.width;
+  const minX = bounds.x + 8;
+  const maxX = bounds.x + bounds.width - nextWidth - 8;
+  const desiredX = typeof islandConfig.customX === 'number'
+    ? rightEdge - nextWidth
+    : bounds.x + bounds.width - nextWidth - DEFAULT_TRAY_RIGHT_OFFSET;
+  const nextX = Math.max(minX, Math.min(maxX, Math.round(desiredX)));
+
+  islandConfig.customWidth = nextWidth;
+  if (typeof islandConfig.customX === 'number') {
+    islandConfig.customX = nextX;
+  }
+  saveIslandConfig(islandConfig);
+
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.setBounds({ x: nextX, y: prevBounds.y, width: nextWidth, height: ISLAND_HEIGHT });
+  }
+  sendIslandConfig();
+}
+
+function applyPresetPosition(preset) {
+  const display = screen.getPrimaryDisplay();
+  const { bounds } = display;
+  const width = clampWidth(islandConfig.customWidth);
+  const current = islandWindow && !islandWindow.isDestroyed()
+    ? islandWindow.getBounds()
+    : computeIslandBounds();
+
+  let nextX;
+  if (preset === 'left') {
+    nextX = bounds.x + 140;
+  } else if (preset === 'center') {
+    nextX = bounds.x + Math.round((bounds.width - width) / 2);
+  } else {
+    islandConfig.customX = null;
+    nextX = bounds.x + bounds.width - width - DEFAULT_TRAY_RIGHT_OFFSET;
+  }
+
+  const minX = bounds.x + 8;
+  const maxX = bounds.x + bounds.width - width - 8;
+  nextX = Math.max(minX, Math.min(maxX, Math.round(nextX)));
+  if (preset !== 'default') {
+    islandConfig.customX = nextX;
+  }
+  saveIslandConfig(islandConfig);
+
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.setBounds({ x: nextX, y: current.y, width, height: ISLAND_HEIGHT });
+  }
+}
+
+function resetIslandLayout() {
+  islandConfig.customX = null;
+  islandConfig.customWidth = DEFAULT_ISLAND_WIDTH;
+  saveIslandConfig(islandConfig);
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.setBounds(computeIslandBounds());
+  }
+  sendIslandConfig();
+}
+
+function openIslandContextMenu() {
+  if (!islandWindow || islandWindow.isDestroyed()) return;
+  const w = clampWidth(islandConfig.customWidth);
+  const menu = Menu.buildFromTemplate([
+    {
+      label: 'Lock Position & Size',
+      type: 'checkbox',
+      checked: islandConfig.locked,
+      click: (item) => {
+        islandConfig.locked = Boolean(item.checked);
+        saveIslandConfig(islandConfig);
+        sendIslandConfig();
+        updateTrayMenu();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Taskbar Position',
+      submenu: [
+        {
+          label: 'Default (Near Tray)',
+          click: () => applyPresetPosition('default'),
+        },
+        {
+          label: 'Center',
+          click: () => applyPresetPosition('center'),
+        },
+        {
+          label: 'Left',
+          click: () => applyPresetPosition('left'),
+        },
+      ],
+    },
+    {
+      label: 'Island Width',
+      submenu: [
+        {
+          label: 'Compact',
+          type: 'radio',
+          checked: w < 245,
+          click: () => applyPresetWidth(220),
+        },
+        {
+          label: 'Balanced',
+          type: 'radio',
+          checked: w >= 245 && w < 305,
+          click: () => applyPresetWidth(276),
+        },
+        {
+          label: 'Wide',
+          type: 'radio',
+          checked: w >= 305,
+          click: () => applyPresetWidth(338),
+        },
+      ],
+    },
+    {
+      label: 'Wide Mode Details',
+      submenu: [
+        {
+          label: 'Show Active Task / Topic',
+          type: 'radio',
+          checked: islandConfig.wideDetailMode === 'task',
+          click: () => {
+            islandConfig.wideDetailMode = 'task';
+            saveIslandConfig(islandConfig);
+            sendIslandConfig();
+          },
+        },
+        {
+          label: 'Show Daily Goal Progress',
+          type: 'radio',
+          checked: islandConfig.wideDetailMode === 'goal',
+          click: () => {
+            islandConfig.wideDetailMode = 'goal';
+            saveIslandConfig(islandConfig);
+            sendIslandConfig();
+          },
+        },
+        {
+          label: 'Off (Clean Spacing Only)',
+          type: 'radio',
+          checked: islandConfig.wideDetailMode === 'off',
+          click: () => {
+            islandConfig.wideDetailMode = 'off';
+            saveIslandConfig(islandConfig);
+            sendIslandConfig();
+          },
+        },
+      ],
+    },
+    {
+      label: 'Visibility',
+      submenu: [
+        {
+          label: 'Always Show on Taskbar',
+          type: 'radio',
+          checked: islandConfig.visibilityMode === 'always',
+          click: () => setVisibilityMode('always', true),
+        },
+        {
+          label: 'When Closed While Running',
+          type: 'radio',
+          checked: islandConfig.visibilityMode === 'when_closed_running',
+          click: () => setVisibilityMode('when_closed_running', true),
+        },
+        {
+          label: 'When Minimized or Closed',
+          type: 'radio',
+          checked: islandConfig.visibilityMode === 'when_closed',
+          click: () => setVisibilityMode('when_closed', true),
+        },
+        {
+          label: 'Hide Island',
+          type: 'radio',
+          checked: islandConfig.visibilityMode === 'off',
+          click: () => setVisibilityMode('off', true),
+        },
+      ],
+    },
+    { type: 'separator' },
+    {
+      label: 'Reset Position & Size',
+      click: () => resetIslandLayout(),
+    },
+    {
+      label: 'Open Zonein',
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      },
+    },
+  ]);
+
+  menu.popup({ window: islandWindow });
 }
 
 function createTaskbarIsland() {
@@ -131,12 +443,11 @@ function createTaskbarIsland() {
   void islandWindow.loadFile(path.join(__dirname, 'taskbar-island.html'));
 
   islandWindow.once('ready-to-show', () => {
-    if (islandConfig.visible && islandWindow && !islandWindow.isDestroyed()) {
-      islandWindow.showInactive();
-      if (lastIslandState) {
-        islandWindow.webContents.send('zonein-island:state', lastIslandState);
-      }
+    sendIslandConfig();
+    if (lastIslandState && islandWindow && !islandWindow.isDestroyed()) {
+      islandWindow.webContents.send('zonein-island:state', lastIslandState);
     }
+    syncIslandVisibility();
   });
 
   islandWindow.on('closed', () => {
@@ -151,37 +462,54 @@ function updateTrayMenu() {
       {
         label: 'Show Zonein',
         click: () => {
+          if (mainWindow?.isMinimized()) mainWindow.restore();
           mainWindow?.show();
           mainWindow?.focus();
         },
       },
       { type: 'separator' },
       {
-        label: 'Show Taskbar Dynamic Island',
+        label: 'Taskbar Island Visibility',
+        submenu: [
+          {
+            label: 'Always Show',
+            type: 'radio',
+            checked: islandConfig.visibilityMode === 'always',
+            click: () => setVisibilityMode('always', true),
+          },
+          {
+            label: 'When Closed While Running',
+            type: 'radio',
+            checked: islandConfig.visibilityMode === 'when_closed_running',
+            click: () => setVisibilityMode('when_closed_running', true),
+          },
+          {
+            label: 'When Minimized or Closed',
+            type: 'radio',
+            checked: islandConfig.visibilityMode === 'when_closed',
+            click: () => setVisibilityMode('when_closed', true),
+          },
+          {
+            label: 'Off (Hidden)',
+            type: 'radio',
+            checked: islandConfig.visibilityMode === 'off',
+            click: () => setVisibilityMode('off', true),
+          },
+        ],
+      },
+      {
+        label: 'Lock Island Position & Size',
         type: 'checkbox',
-        checked: islandConfig.visible,
+        checked: islandConfig.locked,
         click: (menuItem) => {
-          islandConfig.visible = menuItem.checked;
+          islandConfig.locked = Boolean(menuItem.checked);
           saveIslandConfig(islandConfig);
-          if (islandWindow && !islandWindow.isDestroyed()) {
-            if (islandConfig.visible) {
-              islandWindow.showInactive();
-            } else {
-              islandWindow.hide();
-            }
-          }
+          sendIslandConfig();
         },
       },
       {
-        label: 'Reset Island Position',
-        click: () => {
-          islandConfig.customX = null;
-          saveIslandConfig(islandConfig);
-          if (islandWindow && !islandWindow.isDestroyed()) {
-            const b = computeIslandBounds();
-            islandWindow.setBounds(b);
-          }
-        },
+        label: 'Reset Island Position & Size',
+        click: () => resetIslandLayout(),
       },
       { type: 'separator' },
       {
@@ -197,15 +525,20 @@ function updateTrayMenu() {
 
 function registerIslandIpcHandlers() {
   ipcMain.on('zonein-island:update-state', (_event, state) => {
+    const prevRunning = Boolean(lastIslandState && lastIslandState.timerRunning);
     lastIslandState = state;
     if (islandWindow && !islandWindow.isDestroyed()) {
       islandWindow.webContents.send('zonein-island:state', state);
+    }
+    if (Boolean(state && state.timerRunning) !== prevRunning) {
+      syncIslandVisibility();
     }
   });
 
   ipcMain.on('zonein-island:action', (_event, action) => {
     if (action === 'show-main') {
       if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
         mainWindow.focus();
       }
@@ -217,35 +550,66 @@ function registerIslandIpcHandlers() {
   });
 
   ipcMain.on('zonein-island:move-by', (_event, deltaX) => {
+    if (islandConfig.locked) return;
     if (!islandWindow || islandWindow.isDestroyed()) return;
     const display = screen.getPrimaryDisplay();
     const { bounds } = display;
     const current = islandWindow.getBounds();
     const minX = bounds.x + 8;
-    const maxX = bounds.x + bounds.width - ISLAND_WIDTH - 8;
+    const maxX = bounds.x + bounds.width - current.width - 8;
     const nextX = Math.max(minX, Math.min(maxX, Math.round(current.x + Number(deltaX || 0))));
-    islandWindow.setBounds({ x: nextX, y: current.y, width: ISLAND_WIDTH, height: ISLAND_HEIGHT });
+    islandWindow.setBounds({ x: nextX, y: current.y, width: current.width, height: ISLAND_HEIGHT });
     islandConfig.customX = nextX;
+  });
+
+  ipcMain.on('zonein-island:resize-by', (_event, payload) => {
+    if (islandConfig.locked) return;
+    if (!islandWindow || islandWindow.isDestroyed() || !payload) return;
+    const display = screen.getPrimaryDisplay();
+    const { bounds } = display;
+    const current = islandWindow.getBounds();
+    const delta = Math.round(Number(payload.deltaX || 0));
+    if (!delta) return;
+
+    const side = payload.side === 'left' ? 'left' : 'right';
+    let nextWidth = current.width;
+    let nextX = current.x;
+
+    if (side === 'right') {
+      const maxAllowed = Math.min(MAX_ISLAND_WIDTH, bounds.x + bounds.width - 8 - current.x);
+      nextWidth = Math.max(MIN_ISLAND_WIDTH, Math.min(maxAllowed, current.width + delta));
+    } else {
+      const rightEdge = current.x + current.width;
+      const maxAllowed = Math.min(MAX_ISLAND_WIDTH, rightEdge - (bounds.x + 8));
+      nextWidth = Math.max(MIN_ISLAND_WIDTH, Math.min(maxAllowed, current.width - delta));
+      nextX = rightEdge - nextWidth;
+    }
+
+    islandWindow.setBounds({ x: nextX, y: current.y, width: nextWidth, height: ISLAND_HEIGHT });
+    islandConfig.customWidth = nextWidth;
+    islandConfig.customX = nextX;
+    sendIslandConfig();
   });
 
   ipcMain.on('zonein-island:save-pos', () => {
     saveIslandConfig(islandConfig);
   });
 
-  ipcMain.handle('zonein-island:get-visible', () => islandConfig.visible);
+  ipcMain.on('zonein-island:context-menu', () => {
+    openIslandContextMenu();
+  });
+
+  ipcMain.handle('zonein-island:get-visible', () => islandConfig.visibilityMode !== 'off');
 
   ipcMain.handle('zonein-island:set-visible', (_event, visible) => {
-    islandConfig.visible = Boolean(visible);
-    saveIslandConfig(islandConfig);
-    if (islandWindow && !islandWindow.isDestroyed()) {
-      if (islandConfig.visible) {
-        islandWindow.showInactive();
-      } else {
-        islandWindow.hide();
-      }
-    }
-    updateTrayMenu();
-    return islandConfig.visible;
+    const mode = setVisibilityMode(visible ? 'always' : 'off', false);
+    return mode !== 'off';
+  });
+
+  ipcMain.handle('zonein-island:get-visibility-mode', () => islandConfig.visibilityMode);
+
+  ipcMain.handle('zonein-island:set-visibility-mode', (_event, mode) => {
+    return setVisibilityMode(mode, false);
   });
 }
 
@@ -339,14 +703,23 @@ async function createWindow() {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow.hide();
+      syncIslandVisibility();
     }
   });
+
+  mainWindow.on('show', () => syncIslandVisibility());
+  mainWindow.on('hide', () => syncIslandVisibility());
+  mainWindow.on('minimize', () => syncIslandVisibility());
+  mainWindow.on('restore', () => syncIslandVisibility());
+  mainWindow.on('focus', () => syncIslandVisibility());
+  mainWindow.on('blur', () => syncIslandVisibility());
 
   if (appIcon) {
     tray = new Tray(appIcon.resize({ width: 16, height: 16 }));
     tray.setToolTip('Zonein Pomodoro');
     updateTrayMenu();
     tray.on('double-click', () => {
+      if (mainWindow?.isMinimized()) mainWindow.restore();
       mainWindow?.show();
       mainWindow?.focus();
     });
@@ -367,6 +740,7 @@ app.whenReady().then(() => {
   void createWindow();
   app.on('activate', () => {
     if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
     }

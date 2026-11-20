@@ -18,56 +18,61 @@
       height: 100%;
       overflow: hidden;
       background: transparent;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
+      font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 0 4px;
     }
 
     :root {
       --accent: #a78bfa;
       --accent-2: #38bdf8;
       --accent-glow: rgba(167, 139, 250, 0.55);
-      --pill-bg: #08080c;
+      --goal-1: #fbbf24;
+      --goal-2: #34d399;
+      --goal-glow: rgba(52, 211, 153, 0.45);
+      --pill-bg: #08090f;
     }
 
     .island-shell {
       position: relative;
+      width: 100%;
+      height: 36px;
       display: flex;
       align-items: center;
-      gap: 8px;
-      height: 36px;
-      padding: 0 8px 0 6px;
-      border-radius: 999px;
+      gap: 7px;
+      padding: 0 6px 0 5px;
+      border-radius: 13px;
       background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.2) 100%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.015) 48%, rgba(0, 0, 0, 0.25) 100%),
         var(--pill-bg);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.65),
-        0 0 0 0.5px rgba(0, 0, 0, 0.9),
+        0 0 0 0.5px rgba(0, 0, 0, 0.92),
         inset 0 1px 0 rgba(255, 255, 255, 0.12);
       color: #f8fafc;
-      cursor: grab;
+      cursor: pointer;
       transition:
-        transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1),
-        box-shadow 0.3s ease,
-        border-color 0.3s ease;
+        transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 0.28s ease,
+        border-color 0.28s ease;
       overflow: hidden;
     }
 
-    /* Completion-percentage-driven glowing Dynamic Island border */
+    /* Outer border = Daily Focus Goal Progress */
     .island-shell::before {
       content: '';
       position: absolute;
       inset: 0;
-      border-radius: 999px;
-      padding: 1.5px;
+      border-radius: 13px;
+      padding: 1.6px;
       background: conic-gradient(
         from -90deg,
-        var(--accent) 0deg,
-        var(--accent-2) calc(var(--pct, 100) * 3.6deg),
-        rgba(255, 255, 255, 0.12) calc(var(--pct, 100) * 3.6deg)
+        var(--goal-1) 0deg,
+        var(--goal-2) calc(var(--goal-pct, 0) * 3.6deg),
+        rgba(255, 255, 255, 0.1) calc(var(--goal-pct, 0) * 3.6deg)
       );
       -webkit-mask:
         linear-gradient(#fff 0 0) content-box,
@@ -75,56 +80,65 @@
       -webkit-mask-composite: xor;
       mask-composite: exclude;
       pointer-events: none;
-      opacity: 0.45;
-      transition: opacity 0.35s ease;
+      opacity: 0.85;
+      transition: opacity 0.3s ease;
     }
 
-    .island-shell.running::before {
-      animation: borderPulse 2.4s ease-in-out infinite;
+    .island-shell.no-goal::before {
+      background: rgba(255, 255, 255, 0.14);
+      opacity: 0.6;
     }
 
-    .island-shell.paused::before {
-      opacity: 0.28;
-    }
-
-    @keyframes borderPulse {
-      0%, 100% {
-        opacity: 0.55;
-        filter: drop-shadow(0 0 2px var(--accent-glow));
-      }
-      50% {
-        opacity: 1;
-        filter: drop-shadow(0 0 6px var(--accent-glow));
-      }
+    .island-shell.goal-complete::before {
+      background: conic-gradient(
+        from -90deg,
+        #34d399 0deg,
+        #2dd4bf 180deg,
+        #fbbf24 360deg
+      );
+      opacity: 1;
+      filter: drop-shadow(0 0 3px var(--goal-glow));
     }
 
     .island-shell:hover {
-      transform: scale(1.03);
-      border-color: rgba(255, 255, 255, 0.24);
+      border-color: rgba(255, 255, 255, 0.2);
       box-shadow:
-        0 6px 20px rgba(0, 0, 0, 0.78),
-        0 0 14px -4px var(--accent-glow),
-        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        0 6px 18px rgba(0, 0, 0, 0.78),
+        0 0 12px -4px var(--accent-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    }
+
+    .island-shell.unlocked {
+      cursor: grab;
+    }
+
+    .island-shell.unlocked::after {
+      content: '';
+      position: absolute;
+      inset: 2px;
+      border-radius: 11px;
+      border: 1px dashed rgba(255, 255, 255, 0.24);
+      pointer-events: none;
     }
 
     .island-shell.dragging {
       cursor: grabbing;
-      transform: scale(0.98);
+      transform: scale(0.985);
     }
 
-    /* Ambient breathing aura inside the Dynamic Island */
+    /* Ambient mode aura */
     .island-aura {
       position: absolute;
-      left: -6px;
+      left: -4px;
       top: 50%;
-      width: 54px;
+      width: 68px;
       height: 54px;
       transform: translateY(-50%);
       border-radius: 50%;
-      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
-      opacity: 0.35;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 72%);
+      opacity: 0.28;
       pointer-events: none;
-      transition: opacity 0.4s ease;
+      transition: opacity 0.35s ease;
     }
 
     .island-shell.running .island-aura {
@@ -132,126 +146,144 @@
     }
 
     .island-shell.paused .island-aura {
-      opacity: 0.16;
+      opacity: 0.14;
     }
 
     @keyframes auraPulse {
       0%, 100% {
-        opacity: 0.28;
+        opacity: 0.22;
         transform: translateY(-50%) scale(0.95);
       }
       50% {
-        opacity: 0.62;
-        transform: translateY(-50%) scale(1.15);
+        opacity: 0.55;
+        transform: translateY(-50%) scale(1.12);
       }
     }
 
-    /* Animated Ring Container */
-    .ring-wrap {
-      position: relative;
-      width: 26px;
-      height: 26px;
-      flex-shrink: 0;
-      display: flex;
+    /* Edge resize handles (only active when unlocked via right-click menu) */
+    .resize-handle {
+      display: none;
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      width: 7px;
+      z-index: 6;
+      cursor: ew-resize;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
     }
 
-    .ring-svg {
-      width: 26px;
+    .island-shell.unlocked .resize-handle {
+      display: flex;
+    }
+
+    .resize-handle.left {
+      left: 0;
+    }
+
+    .resize-handle.right {
+      right: 0;
+    }
+
+    .resize-handle::before {
+      content: '';
+      width: 2px;
+      height: 14px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.5);
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .resize-handle:hover::before {
+      background: var(--accent);
+      transform: scaleY(1.15);
+    }
+
+    /* Inner Adaptive Rounded-Rect Progress Ring with Timer Inside */
+    .timer-badge {
+      position: relative;
       height: 26px;
-      transform: rotate(-90deg);
+      min-width: 54px;
+      padding: 0 9px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.045);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      z-index: 2;
+    }
+
+    .badge-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       overflow: visible;
+      pointer-events: none;
     }
 
-    .ring-track {
+    .badge-track {
       fill: none;
-      stroke: rgba(255, 255, 255, 0.12);
-      stroke-width: 2.6;
+      stroke: rgba(255, 255, 255, 0.13);
+      stroke-width: 2;
     }
 
-    .ring-progress {
+    .badge-progress {
       fill: none;
-      stroke: url(#ringGrad);
-      stroke-width: 2.8;
+      stroke: url(#badgeGrad);
+      stroke-width: 2.2;
       stroke-linecap: round;
-      transition: stroke-dashoffset 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+      transition: stroke-dashoffset 0.45s cubic-bezier(0.22, 1, 0.36, 1);
       filter: drop-shadow(0 0 3px var(--accent-glow));
     }
 
-    /* Orbiting comet tip dot */
-    .comet-orbit {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    .island-shell.paused .badge-progress {
+      filter: none;
+      opacity: 0.78;
     }
 
-    .comet-dot {
-      position: absolute;
-      top: 0.5px;
-      left: 50%;
-      width: 4.5px;
-      height: 4.5px;
-      transform: translateX(-50%);
-      border-radius: 50%;
-      background: #ffffff;
-      box-shadow: 0 0 6px 1.5px var(--accent), 0 0 2px #ffffff;
-      opacity: 0.95;
+    .island-shell.infinite.running .badge-progress {
+      stroke-dasharray: 30 70 !important;
+      animation: squircleFlow 2.6s linear infinite;
+      transition: none;
     }
 
-    .island-shell.paused .comet-dot {
-      opacity: 0.45;
-      box-shadow: none;
-    }
-
-    /* Infinite mode rotating shimmer */
-    .island-shell.infinite.running .ring-svg {
-      animation: spinSlow 4s linear infinite;
-    }
-
-    @keyframes spinSlow {
-      from { transform: rotate(-90deg); }
-      to { transform: rotate(270deg); }
-    }
-
-    /* Center percentage / icon inside ring */
-    .ring-center {
-      position: absolute;
-      font-size: 7px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: rgba(255, 255, 255, 0.9);
-      pointer-events: none;
-      line-height: 1;
-    }
-
-    /* Time + Status Block */
-    .time-block {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      min-width: 48px;
-      cursor: pointer;
-      position: relative;
-      z-index: 1;
+    @keyframes squircleFlow {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: -100; }
     }
 
     .time-text {
-      font-size: 13px;
+      position: relative;
+      z-index: 1;
+      font-size: 12.5px;
       font-weight: 800;
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.02em;
-      line-height: 1.05;
+      line-height: 1;
       color: #ffffff;
+      white-space: nowrap;
+    }
+
+    /* Mode label + optional wide-mode details */
+    .info-block {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 1.5px;
+      position: relative;
+      z-index: 2;
+      overflow: hidden;
     }
 
     .mode-row {
       display: flex;
       align-items: center;
       gap: 4px;
-      margin-top: 1px;
+      min-width: 0;
     }
 
     .live-dot {
@@ -259,7 +291,7 @@
       height: 4.5px;
       border-radius: 50%;
       background: var(--accent);
-      box-shadow: 0 0 6px var(--accent);
+      box-shadow: 0 0 5px var(--accent);
       flex-shrink: 0;
     }
 
@@ -269,165 +301,218 @@
 
     .island-shell.paused .live-dot {
       background: #fbbf24;
-      box-shadow: 0 0 4px rgba(251, 191, 36, 0.6);
+      box-shadow: 0 0 4px rgba(251, 191, 36, 0.55);
     }
 
     @keyframes dotBlink {
       0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.45; transform: scale(0.75); }
+      50% { opacity: 0.42; transform: scale(0.75); }
     }
 
     .mode-label {
-      font-size: 8.5px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.62);
+      color: rgba(255, 255, 255, 0.78);
       line-height: 1;
+      white-space: nowrap;
     }
 
-    /* Subtle divider */
-    .divider {
-      width: 1px;
-      height: 16px;
-      background: rgba(255, 255, 255, 0.12);
-      flex-shrink: 0;
+    .wide-detail {
+      display: none;
+      font-size: 9.5px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.56);
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    /* Controls */
+    .island-shell.show-wide-detail .wide-detail {
+      display: block;
+    }
+
+    /* Sculpted Control Pod: Morphing Squircle Keycap + Docked Slim Skip Pill */
     .controls {
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 3px;
+      flex-shrink: 0;
       position: relative;
-      z-index: 2;
+      z-index: 3;
     }
 
-    .ctrl-btn {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      border: none;
-      background: rgba(255, 255, 255, 0.08);
-      color: #f8fafc;
+    .squircle-keycap {
+      position: relative;
+      width: 30px;
+      height: 26px;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        0 2px 6px rgba(0, 0, 0, 0.4);
+      transition:
+        border-radius 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+        background 0.22s ease,
+        border-color 0.22s ease,
+        color 0.22s ease,
+        transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+        box-shadow 0.22s ease;
+    }
+
+    .squircle-keycap:hover {
+      border-color: var(--accent);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.07) 100%);
+      transform: scale(1.05);
+    }
+
+    .squircle-keycap:active {
+      transform: scale(0.9);
+    }
+
+    .island-shell.running .squircle-keycap {
+      border-radius: 7px 11px 11px 7px;
+      border-color: rgba(255, 255, 255, 0.28);
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+      color: #07080d;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.45),
+        0 0 10px -2px var(--accent-glow);
+    }
+
+    .island-shell.running .squircle-keycap:hover {
+      filter: brightness(1.08);
+    }
+
+    .squircle-keycap svg {
+      width: 12px;
+      height: 12px;
+      display: block;
+    }
+
+    .skip-pill {
+      width: 19px;
+      height: 26px;
+      border-radius: 5px 9px 9px 5px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.065);
+      color: rgba(248, 250, 252, 0.78);
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       transition:
         background 0.18s ease,
-        transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
-        color 0.18s ease;
+        border-color 0.18s ease,
+        color 0.18s ease,
+        transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
-    .ctrl-btn:hover {
-      background: rgba(255, 255, 255, 0.18);
-      transform: scale(1.1);
+    .skip-pill:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      transform: scale(1.05);
     }
 
-    .ctrl-btn:active {
+    .skip-pill:active {
       transform: scale(0.88);
     }
 
-    .ctrl-btn.primary {
-      background: var(--accent);
-      color: #09090d;
-      box-shadow: 0 0 10px -2px var(--accent-glow);
-    }
-
-    .ctrl-btn.primary:hover {
-      filter: brightness(1.12);
-      transform: scale(1.1);
-    }
-
-    .ctrl-btn svg {
-      width: 12px;
-      height: 12px;
+    .skip-pill svg {
+      width: 10px;
+      height: 10px;
       display: block;
     }
 
-    /* Interval switch flash animation */
+    /* Interval switch pop */
     .island-shell.flash {
-      animation: islandPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+      animation: islandPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
     @keyframes islandPop {
       0% { transform: scale(1); }
-      45% { transform: scale(1.06); }
+      45% { transform: scale(1.045); }
       100% { transform: scale(1); }
     }
   </style>
 </head>
 <body>
-  <div id="island" class="island-shell paused" title="Drag to reposition along taskbar · Click timer to open Zonein">
+  <div id="island" class="island-shell paused no-goal" title="Click to open Zonein · Right-click for options">
     <div class="island-aura"></div>
+    <div id="resizeLeft" class="resize-handle left" title="Drag to resize width"></div>
+    <div id="resizeRight" class="resize-handle right" title="Drag to resize width"></div>
 
-    <!-- Animated Progress Ring -->
-    <div id="ringBtn" class="ring-wrap" title="Open Zonein">
-      <svg class="ring-svg" viewBox="0 0 28 28">
+    <!-- Inner Adaptive Rounded-Rect Progress Ring with Live Timer Inside -->
+    <div id="timerBadge" class="timer-badge">
+      <svg id="badgeSvg" class="badge-svg" aria-hidden="true">
         <defs>
-          <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop id="gradStop1" offset="0%" stop-color="#c084fc" />
             <stop id="gradStop2" offset="100%" stop-color="#38bdf8" />
           </linearGradient>
         </defs>
-        <circle class="ring-track" cx="14" cy="14" r="11.2" />
-        <circle
-          id="ringProgress"
-          class="ring-progress"
-          cx="14"
-          cy="14"
-          r="11.2"
-          stroke-dasharray="70.37"
+        <path id="badgeTrack" class="badge-track" />
+        <path
+          id="badgeProgress"
+          class="badge-progress"
+          pathLength="100"
+          stroke-dasharray="100"
           stroke-dashoffset="0"
         />
       </svg>
-      <div id="cometOrbit" class="comet-orbit" style="transform: rotate(0deg);">
-        <div class="comet-dot"></div>
-      </div>
-      <span id="ringCenter" class="ring-center">100</span>
+      <span id="timeText" class="time-text">25:00</span>
     </div>
 
-    <!-- Countdown + Mode -->
-    <div id="timeBlock" class="time-block" title="Open Zonein">
-      <div id="timeText" class="time-text">25:00</div>
+    <!-- Mode Label & Optional Wide Details -->
+    <div class="info-block">
       <div class="mode-row">
         <span class="live-dot"></span>
         <span id="modeLabel" class="mode-label">FOCUS</span>
       </div>
+      <div id="wideDetail" class="wide-detail"></div>
     </div>
 
-    <div class="divider"></div>
-
-    <!-- Play/Pause & Skip Controls -->
+    <!-- Morphing Squircle Keycap + Docked Slim Skip Pill -->
     <div class="controls">
-      <button id="toggleBtn" class="ctrl-btn primary" type="button" title="Play / Pause" aria-label="Play or Pause">
+      <button id="toggleBtn" class="squircle-keycap" type="button" title="Start" aria-label="Play or Pause">
         <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="6,4 20,12 6,20" />
+          <path d="M7.5 4.8c0-.9 1-1.45 1.78-.98l10.2 6.2c.74.45.74 1.51 0 1.96l-10.2 6.2c-.78.47-1.78-.08-1.78-.98V4.8z" />
         </svg>
         <svg id="pauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display:none;">
-          <rect x="6" y="4" width="4.5" height="16" rx="1.5" />
-          <rect x="13.5" y="4" width="4.5" height="16" rx="1.5" />
+          <rect x="6" y="4.5" width="4.4" height="15" rx="1.6" />
+          <rect x="13.6" y="4.5" width="4.4" height="15" rx="1.6" />
         </svg>
       </button>
 
-      <button id="skipBtn" class="ctrl-btn" type="button" title="Skip to next interval" aria-label="Skip interval">
+      <button id="skipBtn" class="skip-pill" type="button" title="Skip to next interval" aria-label="Skip interval">
         <svg viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="5,4 15,12 5,20" />
-          <rect x="16.5" y="4.5" width="2.8" height="15" rx="1.2" />
+          <path d="M4.5 5.2c0-.85.95-1.36 1.67-.9l8.35 5.3c.66.42.66 1.38 0 1.8l-8.35 5.3c-.72.46-1.67-.05-1.67-.9V5.2z" />
+          <rect x="17" y="4.8" width="2.8" height="14.4" rx="1.2" />
         </svg>
       </button>
     </div>
   </div>
 
   <script>
-    const CIRCUMFERENCE = 2 * Math.PI * 11.2; // ~70.3717
     const island = document.getElementById('island');
-    const ringProgress = document.getElementById('ringProgress');
-    const cometOrbit = document.getElementById('cometOrbit');
-    const ringCenter = document.getElementById('ringCenter');
+    const resizeLeft = document.getElementById('resizeLeft');
+    const resizeRight = document.getElementById('resizeRight');
+    const timerBadge = document.getElementById('timerBadge');
+    const badgeSvg = document.getElementById('badgeSvg');
+    const badgeTrack = document.getElementById('badgeTrack');
+    const badgeProgress = document.getElementById('badgeProgress');
     const timeText = document.getElementById('timeText');
     const modeLabel = document.getElementById('modeLabel');
+    const wideDetail = document.getElementById('wideDetail');
     const toggleBtn = document.getElementById('toggleBtn');
     const skipBtn = document.getElementById('skipBtn');
     const playIcon = document.getElementById('playIcon');
@@ -436,29 +521,122 @@
     const gradStop2 = document.getElementById('gradStop2');
 
     let lastMode = 'FOCUS';
+    let lastState = null;
+    let currentConfig = {
+      locked: true,
+      customWidth: 232,
+      wideDetailMode: 'task',
+      visibilityMode: 'always',
+    };
+
+    function formatGoalDuration(ms) {
+      const totalMins = Math.floor(Math.max(0, Number(ms) || 0) / 60000);
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      if (h > 0 && m > 0) return `${h}h ${m}m`;
+      if (h > 0) return `${h}h`;
+      return `${m}m`;
+    }
+
+    function buildRoundedRectPath(w, h, radius, inset) {
+      const left = inset;
+      const top = inset;
+      const right = Math.max(left + 2, w - inset);
+      const bottom = Math.max(top + 2, h - inset);
+      const iw = right - left;
+      const ih = bottom - top;
+      const r = Math.min(radius, iw / 2, ih / 2);
+      const cx = left + iw / 2;
+
+      return [
+        `M ${cx.toFixed(2)} ${top.toFixed(2)}`,
+        `L ${(right - r).toFixed(2)} ${top.toFixed(2)}`,
+        `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${right.toFixed(2)} ${(top + r).toFixed(2)}`,
+        `L ${right.toFixed(2)} ${(bottom - r).toFixed(2)}`,
+        `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(right - r).toFixed(2)} ${bottom.toFixed(2)}`,
+        `L ${(left + r).toFixed(2)} ${bottom.toFixed(2)}`,
+        `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${left.toFixed(2)} ${(bottom - r).toFixed(2)}`,
+        `L ${left.toFixed(2)} ${(top + r).toFixed(2)}`,
+        `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(left + r).toFixed(2)} ${top.toFixed(2)}`,
+        `L ${cx.toFixed(2)} ${top.toFixed(2)} Z`,
+      ].join(' ');
+    }
+
+    function syncBadgeGeometry() {
+      const rect = timerBadge.getBoundingClientRect();
+      const w = Math.max(48, Math.round(rect.width));
+      const h = Math.max(24, Math.round(rect.height));
+      badgeSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      const d = buildRoundedRectPath(w, h, 8, 1.35);
+      badgeTrack.setAttribute('d', d);
+      badgeProgress.setAttribute('d', d);
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => syncBadgeGeometry());
+      ro.observe(timerBadge);
+    }
 
     function setThemeForMode(mode) {
       const root = document.documentElement;
       if (mode === 'FOCUS') {
         root.style.setProperty('--accent', '#a78bfa');
-        root.style.setProperty('--accent-glow', 'rgba(167, 139, 250, 0.65)');
+        root.style.setProperty('--accent-2', '#38bdf8');
+        root.style.setProperty('--accent-glow', 'rgba(167, 139, 250, 0.62)');
         gradStop1.setAttribute('stop-color', '#c084fc');
         gradStop2.setAttribute('stop-color', '#38bdf8');
       } else if (mode === 'SHORT_BREAK') {
         root.style.setProperty('--accent', '#34d399');
-        root.style.setProperty('--accent-glow', 'rgba(52, 211, 153, 0.65)');
+        root.style.setProperty('--accent-2', '#2dd4bf');
+        root.style.setProperty('--accent-glow', 'rgba(52, 211, 153, 0.6)');
         gradStop1.setAttribute('stop-color', '#34d399');
         gradStop2.setAttribute('stop-color', '#2dd4bf');
       } else {
         root.style.setProperty('--accent', '#38bdf8');
-        root.style.setProperty('--accent-glow', 'rgba(56, 189, 248, 0.65)');
+        root.style.setProperty('--accent-2', '#818cf8');
+        root.style.setProperty('--accent-glow', 'rgba(56, 189, 248, 0.6)');
         gradStop1.setAttribute('stop-color', '#38bdf8');
         gradStop2.setAttribute('stop-color', '#818cf8');
       }
     }
 
+    function refreshWideDetail() {
+      const isWideEnough = window.innerWidth >= 252;
+      const detailMode = currentConfig.wideDetailMode || 'task';
+      const showDetail = isWideEnough && detailMode !== 'off';
+      island.classList.toggle('show-wide-detail', showDetail);
+
+      if (!showDetail || !lastState) {
+        wideDetail.textContent = '';
+        return;
+      }
+
+      if (detailMode === 'goal') {
+        const todayMs = Number(lastState.todayFocusMs || 0);
+        const goalMs = Number(lastState.focusGoalMs || 0);
+        wideDetail.textContent =
+          goalMs > 0
+            ? `${formatGoalDuration(todayMs)} / ${formatGoalDuration(goalMs)}`
+            : `${formatGoalDuration(todayMs)} today`;
+      } else {
+        wideDetail.textContent = lastState.taskTitle || lastState.topicName || 'Focus';
+      }
+    }
+
+    function applyConfig(cfg) {
+      if (!cfg) return;
+      currentConfig = { ...currentConfig, ...cfg };
+      const unlocked = !currentConfig.locked;
+      island.classList.toggle('unlocked', unlocked);
+      island.title = unlocked
+        ? 'Unlocked: drag to move, drag edges to resize · Right-click to lock'
+        : 'Click to open Zonein · Right-click to unlock, resize, or customize';
+      refreshWideDetail();
+    }
+
     function applyState(state) {
       if (!state) return;
+      lastState = state;
 
       const running = Boolean(state.timerRunning);
       const infinite = Boolean(state.infiniteFocus);
@@ -477,7 +655,7 @@
 
       island.classList.toggle('running', running);
       island.classList.toggle('paused', !running);
-      island.classList.toggle('infinite', infinite);
+      island.classList.toggle('infinite', infinite && mode === 'FOCUS');
 
       timeText.textContent = state.timeStr || '25:00';
       modeLabel.textContent =
@@ -493,25 +671,46 @@
       pauseIcon.style.display = running ? 'block' : 'none';
       toggleBtn.title = running ? 'Pause' : 'Start';
 
-      if (infinite) {
-        ringProgress.style.strokeDashoffset = String(CIRCUMFERENCE * 0.25);
-        cometOrbit.style.display = 'none';
-        ringCenter.textContent = '∞';
-        island.style.setProperty('--pct', '100');
+      // Inner adaptive rounded-rect ring = current Focus / Break progress
+      if (infinite && mode === 'FOCUS') {
+        badgeProgress.style.opacity = '1';
+        badgeProgress.style.strokeDasharray = '30 70';
+        badgeProgress.style.strokeDashoffset = '0';
       } else {
-        const offset = CIRCUMFERENCE * (1 - clamped);
-        ringProgress.style.strokeDashoffset = String(offset);
-        cometOrbit.style.display = clamped > 0.01 ? 'block' : 'none';
-        cometOrbit.style.transform = `rotate(${clamped * 360}deg)`;
-        const pct = Math.round(clamped * 100);
-        ringCenter.textContent = pct >= 100 ? '99' : String(pct);
-        island.style.setProperty('--pct', String(clamped * 100));
+        badgeProgress.style.opacity = clamped <= 0.002 ? '0' : '1';
+        badgeProgress.style.strokeDasharray = '100';
+        badgeProgress.style.strokeDashoffset = String(100 * (1 - clamped));
       }
+
+      // Outer capsule border = Daily Focus Goal progress
+      const focusGoalMs = Number(state.focusGoalMs || 0);
+      const todayFocusMs = Number(state.todayFocusMs || 0);
+      if (focusGoalMs <= 0) {
+        island.classList.add('no-goal');
+        island.classList.remove('goal-complete');
+        island.style.setProperty('--goal-pct', '0');
+      } else {
+        island.classList.remove('no-goal');
+        const goalPct = Math.max(0, Math.min(100, (todayFocusMs / focusGoalMs) * 100));
+        island.classList.toggle('goal-complete', goalPct >= 100);
+        island.style.setProperty('--goal-pct', goalPct.toFixed(2));
+      }
+
+      refreshWideDetail();
+      syncBadgeGeometry();
     }
+
+    syncBadgeGeometry();
 
     if (window.islandBridge) {
       window.islandBridge.onStateUpdate(applyState);
+      window.islandBridge.onConfigUpdate?.(applyConfig);
     }
+
+    window.addEventListener('resize', () => {
+      refreshWideDetail();
+      syncBadgeGeometry();
+    });
 
     toggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -523,39 +722,88 @@
       window.islandBridge?.sendAction('skip');
     });
 
-    // Horizontal drag along taskbar + click to open main window
-    let isPointerDown = false;
-    let didDrag = false;
-    let lastScreenX = 0;
+    // Right-click native context menu (Lock/Unlock, Position, Width, Wide Details, Visibility)
+    island.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.islandBridge?.showContextMenu?.();
+    });
+
+    // Edge resize handles (active only when unlocked)
+    let resizeSession = null;
+
+    function startResize(side, e) {
+      if (currentConfig.locked) return;
+      e.stopPropagation();
+      e.preventDefault();
+      resizeSession = { side, lastScreenX: e.screenX };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+
+    function moveResize(e) {
+      if (!resizeSession) return;
+      const dx = e.screenX - resizeSession.lastScreenX;
+      if (Math.abs(dx) >= 1) {
+        resizeSession.lastScreenX = e.screenX;
+        window.islandBridge?.resizeBy?.(dx, resizeSession.side);
+      }
+    }
+
+    function endResize() {
+      if (!resizeSession) return;
+      resizeSession = null;
+      window.islandBridge?.saveLayout?.();
+    }
+
+    resizeLeft.addEventListener('pointerdown', (e) => startResize('left', e));
+    resizeLeft.addEventListener('pointermove', moveResize);
+    resizeLeft.addEventListener('pointerup', endResize);
+    resizeLeft.addEventListener('pointercancel', endResize);
+
+    resizeRight.addEventListener('pointerdown', (e) => startResize('right', e));
+    resizeRight.addEventListener('pointermove', moveResize);
+    resizeRight.addEventListener('pointerup', endResize);
+    resizeRight.addEventListener('pointercancel', endResize);
+
+    // Horizontal drag (only when unlocked) + left-click to open main Zonein window
+    let pointerState = null;
 
     island.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('button')) return;
-      isPointerDown = true;
-      didDrag = false;
-      lastScreenX = e.screenX;
+      if (e.button !== 0) return;
+      if (e.target.closest('button') || e.target.closest('.resize-handle')) return;
+      pointerState = {
+        didDrag: false,
+        lastScreenX: e.screenX,
+      };
       island.setPointerCapture(e.pointerId);
     });
 
     island.addEventListener('pointermove', (e) => {
-      if (!isPointerDown) return;
-      const dx = e.screenX - lastScreenX;
+      if (!pointerState || currentConfig.locked) return;
+      const dx = e.screenX - pointerState.lastScreenX;
       if (Math.abs(dx) >= 2) {
-        didDrag = true;
+        pointerState.didDrag = true;
         island.classList.add('dragging');
-        lastScreenX = e.screenX;
+        pointerState.lastScreenX = e.screenX;
         window.islandBridge?.moveBy(dx);
       }
     });
 
     island.addEventListener('pointerup', (e) => {
-      if (!isPointerDown) return;
-      isPointerDown = false;
+      if (!pointerState) return;
+      const didDrag = pointerState.didDrag;
+      pointerState = null;
       island.classList.remove('dragging');
-      if (didDrag) {
-        window.islandBridge?.savePosition();
-      } else if (!e.target.closest('button')) {
+      if (didDrag && !currentConfig.locked) {
+        window.islandBridge?.saveLayout?.();
+      } else if (!e.target.closest('button') && !e.target.closest('.resize-handle')) {
         window.islandBridge?.sendAction('show-main');
       }
+    });
+
+    island.addEventListener('pointercancel', () => {
+      pointerState = null;
+      island.classList.remove('dragging');
     });
   </script>
 </body>

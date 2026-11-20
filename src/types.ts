@@ -132,6 +132,7 @@ export interface SettingsState {
   timerFontFamily: 'jakarta' | 'mono' | 'serif' | 'retro';
   timerPulseAnimation: boolean;
   timerDigitGlow: boolean;
+  taskbarIslandMode: 'always' | 'when_closed_running' | 'when_closed' | 'off';
 }
 
 export const DEFAULT_SETTINGS: SettingsState = {
@@ -163,6 +164,7 @@ export const DEFAULT_SETTINGS: SettingsState = {
   timerFontFamily: 'jakarta',
   timerPulseAnimation: true,
   timerDigitGlow: false,
+  taskbarIslandMode: 'always',
 };
 
 export interface Subtask {
@@ -217,6 +219,7 @@ export type SettingsSubScreen =
   | 'alarm'
   | 'topics'
   | 'tags'
+  | 'taskbar_island'
   | 'advanced'
   | 'backup'
   | 'about';
