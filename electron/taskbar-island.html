@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zonein Taskbar Island</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    :root {
+      --accent: #a78bfa;
+      --accent-2: #38bdf8;
+      --accent-glow: rgba(167, 139, 250, 0.55);
+      --pill-bg: #08080c;
+    }
+
+    .island-shell {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 8px 0 6px;
+      border-radius: 999px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.2) 100%),
+        var(--pill-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.65),
+        0 0 0 0.5px rgba(0, 0, 0, 0.9),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      color: #f8fafc;
+      cursor: grab;
+      transition:
+        transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1),
+        box-shadow 0.3s ease,
+        border-color 0.3s ease;
+      overflow: hidden;
+    }
+
+    /* Completion-percentage-driven glowing Dynamic Island border */
+    .island-shell::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      padding: 1.5px;
+      background: conic-gradient(
+        from -90deg,
+        var(--accent) 0deg,
+        var(--accent-2) calc(var(--pct, 100) * 3.6deg),
+        rgba(255, 255, 255, 0.12) calc(var(--pct, 100) * 3.6deg)
+      );
+      -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+      opacity: 0.45;
+      transition: opacity 0.35s ease;
+    }
+
+    .island-shell.running::before {
+      animation: borderPulse 2.4s ease-in-out infinite;
+    }
+
+    .island-shell.paused::before {
+      opacity: 0.28;
+    }
+
+    @keyframes borderPulse {
+      0%, 100% {
+        opacity: 0.55;
+        filter: drop-shadow(0 0 2px var(--accent-glow));
+      }
+      50% {
+        opacity: 1;
+        filter: drop-shadow(0 0 6px var(--accent-glow));
+      }
+    }
+
+    .island-shell:hover {
+      transform: scale(1.03);
+      border-color: rgba(255, 255, 255, 0.24);
+      box-shadow:
+        0 6px 20px rgba(0, 0, 0, 0.78),
+        0 0 14px -4px var(--accent-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    }
+
+    .island-shell.dragging {
+      cursor: grabbing;
+      transform: scale(0.98);
+    }
+
+    /* Ambient breathing aura inside the Dynamic Island */
+    .island-aura {
+      position: absolute;
+      left: -6px;
+      top: 50%;
+      width: 54px;
+      height: 54px;
+      transform: translateY(-50%);
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0.35;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+
+    .island-shell.running .island-aura {
+      animation: auraPulse 2.8s ease-in-out infinite;
+    }
+
+    .island-shell.paused .island-aura {
+      opacity: 0.16;
+    }
+
+    @keyframes auraPulse {
+      0%, 100% {
+        opacity: 0.28;
+        transform: translateY(-50%) scale(0.95);
+      }
+      50% {
+        opacity: 0.62;
+        transform: translateY(-50%) scale(1.15);
+      }
+    }
+
+    /* Animated Ring Container */
+    .ring-wrap {
+      position: relative;
+      width: 26px;
+      height: 26px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .ring-svg {
+      width: 26px;
+      height: 26px;
+      transform: rotate(-90deg);
+      overflow: visible;
+    }
+
+    .ring-track {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.12);
+      stroke-width: 2.6;
+    }
+
+    .ring-progress {
+      fill: none;
+      stroke: url(#ringGrad);
+      stroke-width: 2.8;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+      filter: drop-shadow(0 0 3px var(--accent-glow));
+    }
+
+    /* Orbiting comet tip dot */
+    .comet-orbit {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .comet-dot {
+      position: absolute;
+      top: 0.5px;
+      left: 50%;
+      width: 4.5px;
+      height: 4.5px;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 0 6px 1.5px var(--accent), 0 0 2px #ffffff;
+      opacity: 0.95;
+    }
+
+    .island-shell.paused .comet-dot {
+      opacity: 0.45;
+      box-shadow: none;
+    }
+
+    /* Infinite mode rotating shimmer */
+    .island-shell.infinite.running .ring-svg {
+      animation: spinSlow 4s linear infinite;
+    }
+
+    @keyframes spinSlow {
+      from { transform: rotate(-90deg); }
+      to { transform: rotate(270deg); }
+    }
+
+    /* Center percentage / icon inside ring */
+    .ring-center {
+      position: absolute;
+      font-size: 7px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: rgba(255, 255, 255, 0.9);
+      pointer-events: none;
+      line-height: 1;
+    }
+
+    /* Time + Status Block */
+    .time-block {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 48px;
+      cursor: pointer;
+      position: relative;
+      z-index: 1;
+    }
+
+    .time-text {
+      font-size: 13px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
+      color: #ffffff;
+    }
+
+    .mode-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 1px;
+    }
+
+    .live-dot {
+      width: 4.5px;
+      height: 4.5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+      flex-shrink: 0;
+    }
+
+    .island-shell.running .live-dot {
+      animation: dotBlink 1.6s ease-in-out infinite;
+    }
+
+    .island-shell.paused .live-dot {
+      background: #fbbf24;
+      box-shadow: 0 0 4px rgba(251, 191, 36, 0.6);
+    }
+
+    @keyframes dotBlink {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.75); }
+    }
+
+    .mode-label {
+      font-size: 8.5px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.62);
+      line-height: 1;
+    }
+
+    /* Subtle divider */
+    .divider {
+      width: 1px;
+      height: 16px;
+      background: rgba(255, 255, 255, 0.12);
+      flex-shrink: 0;
+    }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .ctrl-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition:
+        background 0.18s ease,
+        transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+        color 0.18s ease;
+    }
+
+    .ctrl-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+      transform: scale(1.1);
+    }
+
+    .ctrl-btn:active {
+      transform: scale(0.88);
+    }
+
+    .ctrl-btn.primary {
+      background: var(--accent);
+      color: #09090d;
+      box-shadow: 0 0 10px -2px var(--accent-glow);
+    }
+
+    .ctrl-btn.primary:hover {
+      filter: brightness(1.12);
+      transform: scale(1.1);
+    }
+
+    .ctrl-btn svg {
+      width: 12px;
+      height: 12px;
+      display: block;
+    }
+
+    /* Interval switch flash animation */
+    .island-shell.flash {
+      animation: islandPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes islandPop {
+      0% { transform: scale(1); }
+      45% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <div id="island" class="island-shell paused" title="Drag to reposition along taskbar · Click timer to open Zonein">
+    <div class="island-aura"></div>
+
+    <!-- Animated Progress Ring -->
+    <div id="ringBtn" class="ring-wrap" title="Open Zonein">
+      <svg class="ring-svg" viewBox="0 0 28 28">
+        <defs>
+          <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop id="gradStop1" offset="0%" stop-color="#c084fc" />
+            <stop id="gradStop2" offset="100%" stop-color="#38bdf8" />
+          </linearGradient>
+        </defs>
+        <circle class="ring-track" cx="14" cy="14" r="11.2" />
+        <circle
+          id="ringProgress"
+          class="ring-progress"
+          cx="14"
+          cy="14"
+          r="11.2"
+          stroke-dasharray="70.37"
+          stroke-dashoffset="0"
+        />
+      </svg>
+      <div id="cometOrbit" class="comet-orbit" style="transform: rotate(0deg);">
+        <div class="comet-dot"></div>
+      </div>
+      <span id="ringCenter" class="ring-center">100</span>
+    </div>
+
+    <!-- Countdown + Mode -->
+    <div id="timeBlock" class="time-block" title="Open Zonein">
+      <div id="timeText" class="time-text">25:00</div>
+      <div class="mode-row">
+        <span class="live-dot"></span>
+        <span id="modeLabel" class="mode-label">FOCUS</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Play/Pause & Skip Controls -->
+    <div class="controls">
+      <button id="toggleBtn" class="ctrl-btn primary" type="button" title="Play / Pause" aria-label="Play or Pause">
+        <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="6,4 20,12 6,20" />
+        </svg>
+        <svg id="pauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display:none;">
+          <rect x="6" y="4" width="4.5" height="16" rx="1.5" />
+          <rect x="13.5" y="4" width="4.5" height="16" rx="1.5" />
+        </svg>
+      </button>
+
+      <button id="skipBtn" class="ctrl-btn" type="button" title="Skip to next interval" aria-label="Skip interval">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5,4 15,12 5,20" />
+          <rect x="16.5" y="4.5" width="2.8" height="15" rx="1.2" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const CIRCUMFERENCE = 2 * Math.PI * 11.2; // ~70.3717
+    const island = document.getElementById('island');
+    const ringProgress = document.getElementById('ringProgress');
+    const cometOrbit = document.getElementById('cometOrbit');
+    const ringCenter = document.getElementById('ringCenter');
+    const timeText = document.getElementById('timeText');
+    const modeLabel = document.getElementById('modeLabel');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const skipBtn = document.getElementById('skipBtn');
+    const playIcon = document.getElementById('playIcon');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const gradStop1 = document.getElementById('gradStop1');
+    const gradStop2 = document.getElementById('gradStop2');
+
+    let lastMode = 'FOCUS';
+
+    function setThemeForMode(mode) {
+      const root = document.documentElement;
+      if (mode === 'FOCUS') {
+        root.style.setProperty('--accent', '#a78bfa');
+        root.style.setProperty('--accent-glow', 'rgba(167, 139, 250, 0.65)');
+        gradStop1.setAttribute('stop-color', '#c084fc');
+        gradStop2.setAttribute('stop-color', '#38bdf8');
+      } else if (mode === 'SHORT_BREAK') {
+        root.style.setProperty('--accent', '#34d399');
+        root.style.setProperty('--accent-glow', 'rgba(52, 211, 153, 0.65)');
+        gradStop1.setAttribute('stop-color', '#34d399');
+        gradStop2.setAttribute('stop-color', '#2dd4bf');
+      } else {
+        root.style.setProperty('--accent', '#38bdf8');
+        root.style.setProperty('--accent-glow', 'rgba(56, 189, 248, 0.65)');
+        gradStop1.setAttribute('stop-color', '#38bdf8');
+        gradStop2.setAttribute('stop-color', '#818cf8');
+      }
+    }
+
+    function applyState(state) {
+      if (!state) return;
+
+      const running = Boolean(state.timerRunning);
+      const infinite = Boolean(state.infiniteFocus);
+      const mode = state.timerMode || 'FOCUS';
+      const rawProgress = typeof state.progress === 'number' ? state.progress : 1;
+      const clamped = Math.max(0, Math.min(1, rawProgress));
+
+      if (mode !== lastMode) {
+        lastMode = mode;
+        island.classList.remove('flash');
+        void island.offsetWidth;
+        island.classList.add('flash');
+      }
+
+      setThemeForMode(mode);
+
+      island.classList.toggle('running', running);
+      island.classList.toggle('paused', !running);
+      island.classList.toggle('infinite', infinite);
+
+      timeText.textContent = state.timeStr || '25:00';
+      modeLabel.textContent =
+        mode === 'FOCUS'
+          ? infinite
+            ? 'FLOW'
+            : 'FOCUS'
+          : mode === 'SHORT_BREAK'
+            ? 'BREAK'
+            : 'LONG';
+
+      playIcon.style.display = running ? 'none' : 'block';
+      pauseIcon.style.display = running ? 'block' : 'none';
+      toggleBtn.title = running ? 'Pause' : 'Start';
+
+      if (infinite) {
+        ringProgress.style.strokeDashoffset = String(CIRCUMFERENCE * 0.25);
+        cometOrbit.style.display = 'none';
+        ringCenter.textContent = '∞';
+        island.style.setProperty('--pct', '100');
+      } else {
+        const offset = CIRCUMFERENCE * (1 - clamped);
+        ringProgress.style.strokeDashoffset = String(offset);
+        cometOrbit.style.display = clamped > 0.01 ? 'block' : 'none';
+        cometOrbit.style.transform = `rotate(${clamped * 360}deg)`;
+        const pct = Math.round(clamped * 100);
+        ringCenter.textContent = pct >= 100 ? '99' : String(pct);
+        island.style.setProperty('--pct', String(clamped * 100));
+      }
+    }
+
+    if (window.islandBridge) {
+      window.islandBridge.onStateUpdate(applyState);
+    }
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.islandBridge?.sendAction('toggle');
+    });
+
+    skipBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.islandBridge?.sendAction('skip');
+    });
+
+    // Horizontal drag along taskbar + click to open main window
+    let isPointerDown = false;
+    let didDrag = false;
+    let lastScreenX = 0;
+
+    island.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      isPointerDown = true;
+      didDrag = false;
+      lastScreenX = e.screenX;
+      island.setPointerCapture(e.pointerId);
+    });
+
+    island.addEventListener('pointermove', (e) => {
+      if (!isPointerDown) return;
+      const dx = e.screenX - lastScreenX;
+      if (Math.abs(dx) >= 2) {
+        didDrag = true;
+        island.classList.add('dragging');
+        lastScreenX = e.screenX;
+        window.islandBridge?.moveBy(dx);
+      }
+    });
+
+    island.addEventListener('pointerup', (e) => {
+      if (!isPointerDown) return;
+      isPointerDown = false;
+      island.classList.remove('dragging');
+      if (didDrag) {
+        window.islandBridge?.savePosition();
+      } else if (!e.target.closest('button')) {
+        window.islandBridge?.sendAction('show-main');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -9,8 +9,11 @@ import {
   Clock,
   Coffee,
   Flame,
+  Hash,
+  SlidersHorizontal,
   Sparkles,
   TrendingUp,
+  X,
   Zap,
 } from 'lucide-react';
 import {
@@ -26,7 +29,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { Stat, StatsSubScreen, Task, Topic } from '../types';
+import type { Stat, StatsSubScreen, TagItem, Task, Topic } from '../types';
 import {
   getLastNDates,
   millisecondsToHoursMinutes,
@@ -39,6 +42,7 @@ interface StatsScreenProps {
   stats: Stat[];
   topics: Topic[];
   tasks: Task[];
+  tags: TagItem[];
   focusGoal: number;
   subScreen: StatsSubScreen;
   onNavigate: (sub: StatsSubScreen) => void;
@@ -72,14 +76,18 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
   stats,
   topics,
   tasks,
+  tags,
   focusGoal,
   subScreen,
   onNavigate,
   hasCustomBg = false,
 }) => {
   const todayKey = toLocalDateKey();
-  // Empty array means "All topics"
+  // Empty array means "All topics" / "All tags"
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [historyTab, setHistoryTab] = useState<'last_week' | 'last_month' | 'last_year' | 'lifetime'>('last_week');
   const [hoveredCell, setHoveredCell] = useState<{ label: string; ms: number } | null>(null);
   const [distributionView, setDistributionView] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [weeklyTimeFrame, setWeeklyTimeFrame] = useState<'all' | '12w' | '4w'>('all');
@@ -93,17 +101,90 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
     );
   };
 
+  const toggleTagFilter = (tagId: string) => {
+    setSelectedTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    );
+  };
+
   const filteredStats = useMemo(() => {
-    if (selectedTopicIds.length === 0) return stats;
-    const set = new Set(selectedTopicIds);
-    return stats.filter((s) => set.has(s.topicId));
-  }, [stats, selectedTopicIds]);
+    let base = stats;
+    if (selectedTopicIds.length > 0) {
+      const set = new Set(selectedTopicIds);
+      base = base.filter((s) => set.has(s.topicId));
+    }
+    if (selectedTagIds.length > 0) {
+      const tagSet = new Set(selectedTagIds);
+      return base
+        .map((s) => {
+          if (!s.tagMs) return null;
+          let matchedMs = 0;
+          for (const [tid, ms] of Object.entries(s.tagMs)) {
+            if (tagSet.has(tid)) matchedMs += ms;
+          }
+          if (matchedMs <= 0) return null;
+          const total = totalFocusOfStat(s);
+          const ratio = total > 0 ? Math.min(1, matchedMs / total) : 0;
+          return {
+            ...s,
+            focusTimeQ1: Math.round(s.focusTimeQ1 * ratio),
+            focusTimeQ2: Math.round(s.focusTimeQ2 * ratio),
+            focusTimeQ3: Math.round(s.focusTimeQ3 * ratio),
+            focusTimeQ4: Math.round(s.focusTimeQ4 * ratio),
+          };
+        })
+        .filter((s): s is Stat => s !== null);
+    }
+    return base;
+  }, [stats, selectedTopicIds, selectedTagIds]);
 
   const filteredTasks = useMemo(() => {
-    if (selectedTopicIds.length === 0) return tasks;
-    const set = new Set(selectedTopicIds);
-    return tasks.filter((t) => set.has(t.topicId));
-  }, [tasks, selectedTopicIds]);
+    let base = tasks;
+    if (selectedTopicIds.length > 0) {
+      const set = new Set(selectedTopicIds);
+      base = base.filter((t) => set.has(t.topicId));
+    }
+    if (selectedTagIds.length > 0) {
+      const tagSet = new Set(selectedTagIds);
+      base = base.filter((t) => (t.tagIds ?? []).some((id) => tagSet.has(id)));
+    }
+    return base;
+  }, [tasks, selectedTopicIds, selectedTagIds]);
+
+  const tagBreakdown = useMemo(() => {
+    const msMap = new Map<string, number>();
+    const taskCountMap = new Map<string, number>();
+    const topicFilteredStats =
+      selectedTopicIds.length > 0
+        ? stats.filter((s) => selectedTopicIds.includes(s.topicId))
+        : stats;
+    for (const s of topicFilteredStats) {
+      if (!s.tagMs) continue;
+      for (const [tid, ms] of Object.entries(s.tagMs)) {
+        msMap.set(tid, (msMap.get(tid) ?? 0) + ms);
+      }
+    }
+    const topicFilteredTasks =
+      selectedTopicIds.length > 0
+        ? tasks.filter((t) => selectedTopicIds.includes(t.topicId))
+        : tasks;
+    for (const t of topicFilteredTasks) {
+      if (t.list === 'done' && t.tagIds) {
+        for (const tid of t.tagIds) {
+          taskCountMap.set(tid, (taskCountMap.get(tid) ?? 0) + 1);
+        }
+      }
+    }
+    const items = tags
+      .map((tag) => ({
+        tag,
+        ms: msMap.get(tag.id) ?? 0,
+        doneTasks: taskCountMap.get(tag.id) ?? 0,
+      }))
+      .sort((a, b) => b.ms - a.ms || b.doneTasks - a.doneTasks);
+    const maxMs = Math.max(1, ...items.map((i) => i.ms));
+    return { items, maxMs };
+  }, [stats, tasks, tags, selectedTopicIds]);
 
   const statsByDate = useMemo(() => {
     const map = new Map<string, { focus: number; breakTime: number; q1: number; q2: number; q3: number; q4: number }>();
@@ -1142,10 +1223,18 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
         : (subScreen === 'last_week' ? lastWeekData : lastMonthData).map((d) => d.date)
     );
     const topicTotals = new Map<number, number>();
+    const tagTotals = new Map<string, number>();
     for (const s of filteredStats) {
       const matchKey = subScreen === 'last_year' ? s.date.slice(0, 7) : s.date;
       if (rangeKeys.has(matchKey)) {
         topicTotals.set(s.topicId, (topicTotals.get(s.topicId) ?? 0) + totalFocusOfStat(s));
+        if (s.tagMs) {
+          for (const [tid, ms] of Object.entries(s.tagMs)) {
+            if (ms > 0) {
+              tagTotals.set(tid, (tagTotals.get(tid) ?? 0) + ms);
+            }
+          }
+        }
       }
     }
 
@@ -1311,6 +1400,49 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
               </div>
             )}
           </div>
+
+          {/* Tag breakdown */}
+          <div
+            className="rounded-[28px] p-5 space-y-3"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex items-center gap-2">
+              <Hash size={18} style={{ color: 'var(--m3-primary)' }} />
+              <h2 className="text-lg font-bold">By tag</h2>
+            </div>
+            {tagTotals.size === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                No tagged focus sessions recorded in this period yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {Array.from(tagTotals.entries())
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([tagId, ms]) => {
+                    const tag = tags.find((t) => t.id === tagId);
+                    if (!tag) return null;
+                    return (
+                      <div
+                        key={tagId}
+                        className="flex items-center justify-between p-3 rounded-2xl"
+                        style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className="w-3 h-3 rounded-full shrink-0"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <span className="text-sm font-semibold">#{tag.name}</span>
+                        </div>
+                        <span className="text-sm font-bold tabular-nums">
+                          {millisecondsToHoursMinutes(ms)}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -1322,55 +1454,204 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
       style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}
     >
       <div className="max-w-2xl mx-auto pt-6 space-y-5">
-        <header className="text-center pb-1">
+        <header className="flex items-center justify-between pb-1">
           <h1 className="text-3xl font-extrabold tracking-tight">Stats</h1>
-        </header>
-
-        {/* Multi-Select Topic Filter */}
-        <section className="flex flex-wrap items-center gap-2 px-1">
-          <button
-            type="button"
-            onClick={() => setSelectedTopicIds([])}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer"
-            style={{
-              backgroundColor:
-                selectedTopicIds.length === 0
-                  ? 'var(--m3-primary)'
-                  : 'var(--m3-surface-bright)',
-              color:
-                selectedTopicIds.length === 0
-                  ? 'var(--m3-on-primary)'
-                  : 'var(--m3-on-surface-variant)',
-            }}
-          >
-            {selectedTopicIds.length === 0 && <Check size={13} />}
-            All Topics
-          </button>
-
-          {topics.map((topic) => {
-            const active = selectedTopicIds.includes(topic.id);
-            return (
+          <div className="flex items-center gap-2">
+            {(selectedTopicIds.length > 0 || selectedTagIds.length > 0) && (
               <button
-                key={topic.id}
                 type="button"
-                onClick={() => toggleTopicFilter(topic.id)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer"
+                onClick={() => {
+                  setSelectedTopicIds([]);
+                  setSelectedTagIds([]);
+                }}
+                className="px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-opacity hover:opacity-85"
                 style={{
-                  backgroundColor: active
-                    ? 'var(--m3-primary-container)'
-                    : 'var(--m3-surface-bright)',
-                  color: active
-                    ? 'var(--m3-on-primary-container)'
-                    : 'var(--m3-on-surface)',
+                  backgroundColor: 'var(--m3-surface-container-high)',
+                  color: 'var(--m3-on-surface-variant)',
                 }}
               >
-                <TopicShapeIcon shape={topic.shape} color={topic.color} size={13} />
-                <span>{topic.name}</span>
-                {active && <Check size={12} />}
+                Reset
               </button>
-            );
-          })}
-        </section>
+            )}
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((o) => !o)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold cursor-pointer transition-all shadow-xs"
+              style={{
+                backgroundColor:
+                  filtersOpen || selectedTopicIds.length > 0 || selectedTagIds.length > 0
+                    ? 'var(--m3-primary)'
+                    : 'var(--m3-surface-bright)',
+                color:
+                  filtersOpen || selectedTopicIds.length > 0 || selectedTagIds.length > 0
+                    ? 'var(--m3-on-primary)'
+                    : 'var(--m3-on-surface)',
+              }}
+            >
+              <SlidersHorizontal size={14} />
+              <span>Filter</span>
+              {selectedTopicIds.length + selectedTagIds.length > 0 && (
+                <span
+                  className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold leading-none"
+                  style={{
+                    backgroundColor: 'var(--m3-on-primary)',
+                    color: 'var(--m3-primary)',
+                  }}
+                >
+                  {selectedTopicIds.length + selectedTagIds.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* Active Filter Summary Strip (when collapsed) */}
+        {!filtersOpen && (selectedTopicIds.length > 0 || selectedTagIds.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selectedTopicIds.map((tid) => {
+              const topic = topics.find((t) => t.id === tid);
+              if (!topic) return null;
+              return (
+                <button
+                  key={`active-topic-${tid}`}
+                  type="button"
+                  onClick={() => toggleTopicFilter(tid)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--m3-primary-container)',
+                    color: 'var(--m3-on-primary-container)',
+                  }}
+                >
+                  <TopicShapeIcon shape={topic.shape} color={topic.color} size={12} />
+                  <span>{topic.name}</span>
+                  <X size={11} className="opacity-70" />
+                </button>
+              );
+            })}
+            {selectedTagIds.map((tagId) => {
+              const tag = tags.find((t) => t.id === tagId);
+              if (!tag) return null;
+              return (
+                <button
+                  key={`active-tag-${tagId}`}
+                  type="button"
+                  onClick={() => toggleTagFilter(tagId)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--m3-surface-bright)',
+                    color: 'var(--m3-on-surface)',
+                    border: `1.5px solid ${tag.color}`,
+                  }}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                  <span>#{tag.name}</span>
+                  <X size={11} className="opacity-70" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Collapsible Unified Filter Panel */}
+        {filtersOpen && (
+          <section
+            className="rounded-[24px] p-4 space-y-3.5 shadow-sm border border-[var(--m3-outline-variant)]/25"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--m3-outline)' }}>
+                  Topics
+                </span>
+                {selectedTopicIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTopicIds([])}
+                    className="text-[11px] font-bold cursor-pointer"
+                    style={{ color: 'var(--m3-primary)' }}
+                  >
+                    All topics
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {topics.map((topic) => {
+                  const active = selectedTopicIds.includes(topic.id);
+                  return (
+                    <button
+                      key={topic.id}
+                      type="button"
+                      onClick={() => toggleTopicFilter(topic.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer"
+                      style={{
+                        backgroundColor: active
+                          ? 'var(--m3-primary-container)'
+                          : 'var(--m3-surface-container-low)',
+                        color: active
+                          ? 'var(--m3-on-primary-container)'
+                          : 'var(--m3-on-surface)',
+                      }}
+                    >
+                      <TopicShapeIcon shape={topic.shape} color={topic.color} size={13} />
+                      <span>{topic.name}</span>
+                      {active && <Check size={12} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {tags.length > 0 && (
+              <div className="space-y-2 pt-2.5 border-t border-[var(--m3-outline-variant)]/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--m3-outline)' }}>
+                    <Hash size={11} />
+                    Tags
+                  </span>
+                  {selectedTagIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTagIds([])}
+                      className="text-[11px] font-bold cursor-pointer"
+                      style={{ color: 'var(--m3-primary)' }}
+                    >
+                      All tags
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((tag) => {
+                    const active = selectedTagIds.includes(tag.id);
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => toggleTagFilter(tag.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer"
+                        style={{
+                          backgroundColor: active
+                            ? 'var(--m3-primary-container)'
+                            : 'var(--m3-surface-container-low)',
+                          color: active
+                            ? 'var(--m3-on-primary-container)'
+                            : 'var(--m3-on-surface)',
+                          border: active ? `1.5px solid ${tag.color}` : '1.5px solid transparent',
+                        }}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        <span>#{tag.name}</span>
+                        {active && <Check size={12} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Today */}
         <section className="space-y-3">
@@ -1750,131 +2031,6 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
           </div>
         </section>
 
-        {/* GitHub-Style Consistency Heatmap & Focus Streak */}
-        <section
-          className="rounded-[24px] p-5 space-y-3.5"
-          style={{ backgroundColor: 'var(--m3-surface-bright)' }}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Flame size={20} style={{ color: 'var(--m3-primary)' }} />
-              <h2 className="text-xl font-bold">Consistency Heatmap</h2>
-            </div>
-            <div className="flex items-center gap-2.5 text-xs font-bold">
-              <span
-                className="px-2.5 py-1 rounded-full"
-                style={{
-                  backgroundColor: 'var(--m3-primary-container)',
-                  color: 'var(--m3-on-primary-container)',
-                }}
-              >
-                {streakAndHeatmap.currentStreak}d streak
-              </span>
-              <span style={{ color: 'var(--m3-on-surface-variant)' }}>
-                Best: {streakAndHeatmap.longestStreak}d
-              </span>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto pb-1">
-            <div className="inline-flex flex-col gap-1.5 min-w-full">
-              {/* Month labels row */}
-              <div className="flex items-center gap-1.5 pl-8">
-                {streakAndHeatmap.weeks.map((week, idx) => (
-                  <div
-                    key={idx}
-                    className="w-3.5 sm:w-4 text-[10px] font-semibold leading-none shrink-0"
-                    style={{ color: 'var(--m3-on-surface-variant)' }}
-                  >
-                    {week.monthLabel}
-                  </div>
-                ))}
-              </div>
-
-              {/* Weekday labels + 16-week grid */}
-              <div className="flex gap-1.5">
-                <div
-                  className="grid grid-rows-7 gap-1.5 text-[10px] font-semibold pr-1 shrink-0 w-7"
-                  style={{ color: 'var(--m3-on-surface-variant)' }}
-                >
-                  <span />
-                  <span className="leading-3.5 sm:leading-4">Mon</span>
-                  <span />
-                  <span className="leading-3.5 sm:leading-4">Wed</span>
-                  <span />
-                  <span className="leading-3.5 sm:leading-4">Fri</span>
-                  <span />
-                </div>
-
-                <div className="flex gap-1.5">
-                  {streakAndHeatmap.weeks.map((week, wIdx) => (
-                    <div key={wIdx} className="grid grid-rows-7 gap-1.5">
-                      {week.days.map((cell) => {
-                        const opacity =
-                          cell.isFuture
-                            ? 0.06
-                            : cell.level === 0
-                              ? 0.2
-                              : cell.level === 1
-                                ? 0.4
-                                : cell.level === 2
-                                  ? 0.65
-                                  : cell.level === 3
-                                    ? 0.85
-                                    : 1;
-                        return (
-                          <button
-                            key={cell.key}
-                            type="button"
-                            disabled={cell.isFuture}
-                            onMouseEnter={() => setHoveredCell({ label: cell.label, ms: cell.ms })}
-                            onFocus={() => setHoveredCell({ label: cell.label, ms: cell.ms })}
-                            onMouseLeave={() => setHoveredCell(null)}
-                            onClick={() => setHoveredCell({ label: cell.label, ms: cell.ms })}
-                            title={`${cell.label}: ${cell.mins > 0 ? millisecondsToHoursMinutes(cell.ms) : 'No focus'}`}
-                            className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-[4px] transition-transform hover:scale-125 focus:outline-none cursor-pointer disabled:cursor-default disabled:hover:scale-100"
-                            style={{
-                              backgroundColor:
-                                cell.level === 0 || cell.isFuture
-                                  ? 'var(--m3-outline-variant)'
-                                  : 'var(--m3-primary)',
-                              opacity,
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive footer + GitHub-style intensity legend */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]" style={{ color: 'var(--m3-on-surface-variant)' }}>
-            <span className="font-semibold">
-              {hoveredCell
-                ? `${hoveredCell.label} · ${hoveredCell.ms > 0 ? millisecondsToHoursMinutes(hoveredCell.ms) : 'No focus'}`
-                : `${streakAndHeatmap.activeDaysCount} active days in the last 16 weeks`}
-            </span>
-            <div className="flex items-center gap-1">
-              <span>Less</span>
-              {[0, 1, 2, 3, 4].map((lvl) => (
-                <span
-                  key={lvl}
-                  className="w-3 h-3 rounded-[3px] inline-block"
-                  style={{
-                    backgroundColor:
-                      lvl === 0 ? 'var(--m3-outline-variant)' : 'var(--m3-primary)',
-                    opacity: lvl === 0 ? 0.2 : lvl === 1 ? 0.4 : lvl === 2 ? 0.65 : lvl === 3 ? 0.85 : 1,
-                  }}
-                />
-              ))}
-              <span>More</span>
-            </div>
-          </div>
-        </section>
-
         {/* Weekly Trend Section */}
         <section>
           <button
@@ -2024,114 +2180,394 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({
           </button>
         </section>
 
-        {/* Segmented Period Cards */}
-        <section className="space-y-1">
-          {/* Last Week */}
-          <button
-            type="button"
-            onClick={() => onNavigate('last_week')}
-            className="w-full text-left rounded-t-[24px] rounded-b-[6px] p-5 space-y-3 transition-opacity hover:opacity-95 cursor-pointer"
-            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-bold">Last week</span>
-              <BarChart3 size={20} style={{ color: 'var(--m3-on-surface-variant)' }} />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tabular-nums">
-                {millisecondsToHoursMinutes(lastWeekAvg)}
-              </span>
-              <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
-                focus / day avg
-              </span>
-            </div>
-            <div className="h-36 w-full pointer-events-none">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={lastWeekData}>
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--m3-outline)' }} axisLine={false} tickLine={false} />
-                  {goalMinutes > 0 && (
-                    <ReferenceLine y={goalMinutes} stroke="var(--m3-tertiary)" strokeDasharray="3 3" />
-                  )}
-                  <Bar dataKey="minutes" fill="var(--m3-primary)" radius={[6, 6, 3, 3]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </button>
-
-          {/* Last Month */}
-          <button
-            type="button"
-            onClick={() => onNavigate('last_month')}
-            className="w-full text-left rounded-[6px] p-5 space-y-3 transition-opacity hover:opacity-95 cursor-pointer"
-            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-bold">Last month</span>
-              <BarChart3 size={20} style={{ color: 'var(--m3-on-surface-variant)' }} />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tabular-nums">
-                {millisecondsToHoursMinutes(lastMonthAvg)}
-              </span>
-              <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
-                focus / day avg
-              </span>
-            </div>
-            <div className="h-32 w-full pointer-events-none">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={lastMonthData}>
-                  <XAxis dataKey="label" interval={4} tick={{ fontSize: 10, fill: 'var(--m3-outline)' }} axisLine={false} tickLine={false} />
-                  <Bar dataKey="minutes" fill="var(--m3-primary)" radius={[4, 4, 2, 2]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </button>
-
-          {/* Last Year */}
-          <button
-            type="button"
-            onClick={() => onNavigate('last_year')}
-            className="w-full text-left rounded-t-[6px] rounded-b-[24px] p-5 space-y-3 transition-opacity hover:opacity-95 cursor-pointer"
-            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-bold">Last year</span>
-              <BarChart3 size={20} style={{ color: 'var(--m3-on-surface-variant)' }} />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tabular-nums">
-                {millisecondsToHoursMinutes(lastYearAvg)}
-              </span>
-              <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
-                focus / day avg
-              </span>
-            </div>
-            <div className="h-32 w-full pointer-events-none">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={lastYearData}>
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--m3-outline)' }} axisLine={false} tickLine={false} />
-                  <Line type="monotone" dataKey="minutes" stroke="var(--m3-primary)" strokeWidth={2.5} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </button>
-        </section>
-
-        {/* Lifetime */}
+        {/* GitHub-Style Consistency Heatmap & Focus Streak (below Weekly Trend) */}
         <section
-          className="rounded-[24px] p-5 space-y-2"
+          className="rounded-[24px] p-5 space-y-3.5"
           style={{ backgroundColor: 'var(--m3-surface-bright)' }}
         >
-          <h2 className="text-xl font-bold">Lifetime</h2>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold tabular-nums">
-              {millisecondsToHoursMinutes(lifetimeTotal)}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Flame size={20} style={{ color: 'var(--m3-primary)' }} />
+              <h2 className="text-xl font-bold">Consistency Heatmap</h2>
+            </div>
+            <div className="flex items-center gap-2.5 text-xs font-bold">
+              <span
+                className="px-2.5 py-1 rounded-full"
+                style={{
+                  backgroundColor: 'var(--m3-primary-container)',
+                  color: 'var(--m3-on-primary-container)',
+                }}
+              >
+                {streakAndHeatmap.currentStreak}d streak
+              </span>
+              <span style={{ color: 'var(--m3-on-surface-variant)' }}>
+                Best: {streakAndHeatmap.longestStreak}d
+              </span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto pb-1">
+            <div className="inline-flex flex-col gap-1.5 min-w-full">
+              {/* Month labels row */}
+              <div className="flex items-center gap-1.5 pl-8">
+                {streakAndHeatmap.weeks.map((week, idx) => (
+                  <div
+                    key={idx}
+                    className="w-3.5 sm:w-4 text-[10px] font-semibold leading-none shrink-0"
+                    style={{ color: 'var(--m3-on-surface-variant)' }}
+                  >
+                    {week.monthLabel}
+                  </div>
+                ))}
+              </div>
+
+              {/* Weekday labels + 16-week grid */}
+              <div className="flex gap-1.5">
+                <div
+                  className="grid grid-rows-7 gap-1.5 text-[10px] font-semibold pr-1 shrink-0 w-7"
+                  style={{ color: 'var(--m3-on-surface-variant)' }}
+                >
+                  <span />
+                  <span className="leading-3.5 sm:leading-4">Mon</span>
+                  <span />
+                  <span className="leading-3.5 sm:leading-4">Wed</span>
+                  <span />
+                  <span className="leading-3.5 sm:leading-4">Fri</span>
+                  <span />
+                </div>
+
+                <div className="flex gap-1.5">
+                  {streakAndHeatmap.weeks.map((week, wIdx) => (
+                    <div key={wIdx} className="grid grid-rows-7 gap-1.5">
+                      {week.days.map((cell) => {
+                        const opacity =
+                          cell.isFuture
+                            ? 0.06
+                            : cell.level === 0
+                              ? 0.2
+                              : cell.level === 1
+                                ? 0.4
+                                : cell.level === 2
+                                  ? 0.65
+                                  : cell.level === 3
+                                    ? 0.85
+                                    : 1;
+                        return (
+                          <button
+                            key={cell.key}
+                            type="button"
+                            disabled={cell.isFuture}
+                            onMouseEnter={() => setHoveredCell({ label: cell.label, ms: cell.ms })}
+                            onFocus={() => setHoveredCell({ label: cell.label, ms: cell.ms })}
+                            onMouseLeave={() => setHoveredCell(null)}
+                            onClick={() => setHoveredCell({ label: cell.label, ms: cell.ms })}
+                            title={`${cell.label}: ${cell.mins > 0 ? millisecondsToHoursMinutes(cell.ms) : 'No focus'}`}
+                            className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-[4px] transition-transform hover:scale-125 focus:outline-none cursor-pointer disabled:cursor-default disabled:hover:scale-100"
+                            style={{
+                              backgroundColor:
+                                cell.level === 0 || cell.isFuture
+                                  ? 'var(--m3-outline-variant)'
+                                  : 'var(--m3-primary)',
+                              opacity,
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive footer + GitHub-style intensity legend */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]" style={{ color: 'var(--m3-on-surface-variant)' }}>
+            <span className="font-semibold">
+              {hoveredCell
+                ? `${hoveredCell.label} · ${hoveredCell.ms > 0 ? millisecondsToHoursMinutes(hoveredCell.ms) : 'No focus'}`
+                : `${streakAndHeatmap.activeDaysCount} active days in the last 16 weeks`}
             </span>
-            <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
-              total
-            </span>
+            <div className="flex items-center gap-1">
+              <span>Less</span>
+              {[0, 1, 2, 3, 4].map((lvl) => (
+                <span
+                  key={lvl}
+                  className="w-3 h-3 rounded-[3px] inline-block"
+                  style={{
+                    backgroundColor:
+                      lvl === 0 ? 'var(--m3-outline-variant)' : 'var(--m3-primary)',
+                    opacity: lvl === 0 ? 0.2 : lvl === 1 ? 0.4 : lvl === 2 ? 0.65 : lvl === 3 ? 0.85 : 1,
+                  }}
+                />
+              ))}
+              <span>More</span>
+            </div>
           </div>
         </section>
+
+        {/* Compact Tabbed History & Milestones Section (Last Week / Last Month / Last Year / Lifetime) */}
+        <section
+          className="rounded-[24px] p-5 space-y-4"
+          style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Clock size={19} style={{ color: 'var(--m3-primary)' }} />
+              <h2 className="text-xl font-bold">History & Milestones</h2>
+            </div>
+
+            {historyTab !== 'lifetime' && (
+              <button
+                type="button"
+                onClick={() => onNavigate(historyTab)}
+                className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer transition-opacity hover:opacity-90"
+                style={{
+                  backgroundColor: 'var(--m3-secondary-container)',
+                  color: 'var(--m3-on-secondary-container)',
+                }}
+              >
+                Full report
+                <ChevronRight size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Segmented Period Tabs */}
+          <div
+            className="grid grid-cols-4 gap-1 p-1 rounded-full text-xs font-bold"
+            style={{ backgroundColor: 'var(--m3-surface-container-high)' }}
+            role="tablist"
+            aria-label="History timeframe"
+          >
+            {(
+              [
+                { id: 'last_week', label: 'Week' },
+                { id: 'last_month', label: 'Month' },
+                { id: 'last_year', label: 'Year' },
+                { id: 'lifetime', label: 'Lifetime' },
+              ] as const
+            ).map((tab) => {
+              const active = historyTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setHistoryTab(tab.id)}
+                  className="py-1.5 rounded-full cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: active ? 'var(--m3-primary)' : 'transparent',
+                    color: active ? 'var(--m3-on-primary)' : 'var(--m3-on-surface-variant)',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active Tab Content */}
+          {historyTab === 'last_week' && (
+            <div className="space-y-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold tabular-nums">
+                    {millisecondsToHoursMinutes(lastWeekAvg)}
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                    focus / day avg
+                  </span>
+                </div>
+                <span className="text-xs font-bold tabular-nums" style={{ color: 'var(--m3-primary)' }}>
+                  {millisecondsToHoursMinutes(focusDistribution.weeklyTotal)} total
+                </span>
+              </div>
+              <div className="h-36 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={lastWeekData}>
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--m3-outline)' }} axisLine={false} tickLine={false} />
+                    {goalMinutes > 0 && (
+                      <ReferenceLine y={goalMinutes} stroke="var(--m3-tertiary)" strokeDasharray="3 3" />
+                    )}
+                    <Tooltip
+                      formatter={(val: number) => [millisecondsToHoursMinutes(Number(val) * 60000), 'Focus']}
+                      contentStyle={{
+                        backgroundColor: 'var(--m3-surface-container-high)',
+                        border: 'none',
+                        borderRadius: 14,
+                        color: 'var(--m3-on-surface)',
+                        fontSize: 12,
+                      }}
+                    />
+                    <Bar dataKey="minutes" fill="var(--m3-primary)" radius={[6, 6, 3, 3]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {historyTab === 'last_month' && (
+            <div className="space-y-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold tabular-nums">
+                    {millisecondsToHoursMinutes(lastMonthAvg)}
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                    focus / day avg
+                  </span>
+                </div>
+                <span className="text-xs font-bold tabular-nums" style={{ color: 'var(--m3-primary)' }}>
+                  {millisecondsToHoursMinutes(focusDistribution.monthlyTotal)} total
+                </span>
+              </div>
+              <div className="h-36 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={lastMonthData}>
+                    <XAxis dataKey="label" interval={4} tick={{ fontSize: 10, fill: 'var(--m3-outline)' }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      formatter={(val: number) => [millisecondsToHoursMinutes(Number(val) * 60000), 'Focus']}
+                      contentStyle={{
+                        backgroundColor: 'var(--m3-surface-container-high)',
+                        border: 'none',
+                        borderRadius: 14,
+                        color: 'var(--m3-on-surface)',
+                        fontSize: 12,
+                      }}
+                    />
+                    <Bar dataKey="minutes" fill="var(--m3-primary)" radius={[4, 4, 2, 2]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {historyTab === 'last_year' && (
+            <div className="space-y-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold tabular-nums">
+                    {millisecondsToHoursMinutes(lastYearAvg)}
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                    focus / day avg
+                  </span>
+                </div>
+                <span className="text-xs font-bold tabular-nums" style={{ color: 'var(--m3-primary)' }}>
+                  {millisecondsToHoursMinutes(lastYearData.reduce((s, d) => s + d.ms, 0))} total
+                </span>
+              </div>
+              <div className="h-36 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={lastYearData}>
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--m3-outline)' }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      formatter={(val: number) => [millisecondsToHoursMinutes(Number(val) * 60000), 'Focus']}
+                      contentStyle={{
+                        backgroundColor: 'var(--m3-surface-container-high)',
+                        border: 'none',
+                        borderRadius: 14,
+                        color: 'var(--m3-on-surface)',
+                        fontSize: 12,
+                      }}
+                    />
+                    <Line type="monotone" dataKey="minutes" stroke="var(--m3-primary)" strokeWidth={2.5} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {historyTab === 'lifetime' && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+              <div
+                className="rounded-2xl p-4 col-span-2 sm:col-span-1"
+                style={{ backgroundColor: 'var(--m3-primary-container)', color: 'var(--m3-on-primary-container)' }}
+              >
+                <div className="text-xs font-semibold opacity-85">Lifetime Focus</div>
+                <div className="text-3xl font-extrabold tabular-nums mt-1">
+                  {millisecondsToHoursMinutes(lifetimeTotal)}
+                </div>
+              </div>
+              <div
+                className="rounded-2xl p-4"
+                style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+              >
+                <div className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Active Days
+                </div>
+                <div className="text-2xl font-extrabold tabular-nums mt-1">
+                  {Array.from(statsByDate.values()).filter((v) => v.focus > 0).length}
+                </div>
+              </div>
+              <div
+                className="rounded-2xl p-4"
+                style={{ backgroundColor: 'var(--m3-surface-container-low)' }}
+              >
+                <div className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                  Best Streak
+                </div>
+                <div className="text-2xl font-extrabold tabular-nums mt-1">
+                  {streakAndHeatmap.longestStreak}d
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Focus by Tag Breakdown */}
+        {tags.length > 0 && (
+          <section
+            className="rounded-[24px] p-5 space-y-3"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Hash size={19} style={{ color: 'var(--m3-primary)' }} />
+                <h2 className="text-xl font-bold">Focus by Tag</h2>
+              </div>
+              <span className="text-xs font-semibold" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                {tags.length} {tags.length === 1 ? 'tag' : 'tags'}
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {tagBreakdown.items.map(({ tag, ms, doneTasks }) => {
+                const pct = Math.round((ms / tagBreakdown.maxMs) * 100);
+                return (
+                  <div key={tag.id} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        #{tag.name}
+                      </span>
+                      <span className="tabular-nums opacity-85">
+                        {millisecondsToHoursMinutes(ms)}
+                        {doneTasks > 0 ? ` · ${doneTasks} done` : ''}
+                      </span>
+                    </div>
+                    <div
+                      className="h-2 w-full rounded-full overflow-hidden"
+                      style={{ backgroundColor: 'var(--m3-surface-container-high)' }}
+                    >
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${ms > 0 ? Math.max(4, pct) : 0}%`,
+                          backgroundColor: tag.color,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Completed Tasks: Estimated vs Actual */}
         <section

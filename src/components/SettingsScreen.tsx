@@ -8,6 +8,7 @@ import {
   Download,
   Eye,
   HardDrive,
+  Hash,
   Image,
   Info,
   Layers,
@@ -22,12 +23,15 @@ import {
   Trash2,
   Upload,
   Volume2,
+  X,
 } from 'lucide-react';
 import {
   COLOR_SCHEMES,
   DEFAULT_TOPIC_ID,
   type SettingsState,
   type SettingsSubScreen,
+  type TagItem,
+  type Task,
   type ThemeMode,
   type Topic,
 } from '../types';
@@ -40,6 +44,8 @@ import type { CelebrationVariant } from './CelebrationModal';
 interface SettingsScreenProps {
   settings: SettingsState;
   topics: Topic[];
+  tags: TagItem[];
+  tasks: Task[];
   subScreen: SettingsSubScreen;
   lastModified?: number;
   isPristine?: boolean;
@@ -48,6 +54,9 @@ interface SettingsScreenProps {
   onAddTopic: () => void;
   onEditTopic: (topic: Topic) => void;
   onDeleteTopic: (topicId: number) => void;
+  onCreateTag: (name: string, color: string) => TagItem;
+  onUpdateTag: (tag: TagItem) => void;
+  onDeleteTag: (tagId: string) => void;
   onEraseAllData: () => void;
   onExportBackup: () => string;
   onImportBackup: (raw: string) => boolean;
@@ -58,6 +67,8 @@ interface SettingsScreenProps {
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
   topics,
+  tags,
+  tasks,
   subScreen,
   lastModified,
   isPristine,
@@ -66,6 +77,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onAddTopic,
   onEditTopic,
   onDeleteTopic,
+  onCreateTag,
+  onUpdateTag,
+  onDeleteTag,
   onEraseAllData,
   onExportBackup,
   onImportBackup,
@@ -77,6 +91,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [backupMessage, setBackupMessage] = useState('');
   const [wallpaperInput, setWallpaperInput] = useState(settings.customBackgroundUrl || '');
   const [previewMode, setPreviewMode] = useState<'focus' | 'break'>('focus');
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState(COLOR_SCHEMES[4].color);
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [editingTagName, setEditingTagName] = useState('');
+  const [editingTagColor, setEditingTagColor] = useState(COLOR_SCHEMES[0].color);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1605,6 +1624,233 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     );
   }
 
+  if (subScreen === 'tags') {
+    const handleCreate = (e: React.FormEvent) => {
+      e.preventDefault();
+      const trimmed = newTagName.trim().replace(/^#+/, '');
+      if (!trimmed) return;
+      onCreateTag(trimmed, newTagColor);
+      setNewTagName('');
+      setNewTagColor(COLOR_SCHEMES[(tags.length + 1) % COLOR_SCHEMES.length].color);
+    };
+
+    return (
+      <div
+        className="min-h-screen pb-28 px-4"
+        style={{ backgroundColor: hasCustomBg ? 'transparent' : 'var(--m3-surface-container)' }}
+      >
+        <div className="max-w-2xl mx-auto pt-5 space-y-4">
+          {renderHeader('Tags', 'main')}
+
+          {/* Create Tag Card */}
+          <form
+            onSubmit={handleCreate}
+            className="rounded-[24px] p-5 space-y-3.5"
+            style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+          >
+            <div>
+              <div className="font-bold text-sm">Create a new tag</div>
+              <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                Use tags alongside topics (e.g. #h1, #bugcrowd, #pentest) to group tasks and sessions.
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newTagName}
+                onChange={(e) => setNewTagName(e.target.value)}
+                placeholder="Tag name (e.g. h1, bugcrowd)..."
+                className="flex-1 min-w-0 px-4 py-2.5 rounded-full text-sm font-medium outline-none"
+                style={{
+                  backgroundColor: 'var(--m3-surface-container-low)',
+                  color: 'var(--m3-on-surface)',
+                }}
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full text-xs font-bold cursor-pointer shrink-0 transition-opacity hover:opacity-90"
+                style={{
+                  backgroundColor: 'var(--m3-primary)',
+                  color: 'var(--m3-on-primary)',
+                }}
+              >
+                <Plus size={15} />
+                Add
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-0.5">
+              {COLOR_SCHEMES.map((item) => {
+                const selected = newTagColor.toLowerCase() === item.color.toLowerCase();
+                return (
+                  <button
+                    key={item.color}
+                    type="button"
+                    onClick={() => setNewTagColor(item.color)}
+                    title={item.name}
+                    className="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer transition-transform active:scale-90"
+                    style={{
+                      backgroundColor: item.color,
+                      boxShadow: selected
+                        ? '0 0 0 2px var(--m3-surface), 0 0 0 4px var(--m3-primary)'
+                        : 'none',
+                    }}
+                  >
+                    {selected && <Check size={13} color="#1a1c16" strokeWidth={3} />}
+                  </button>
+                );
+              })}
+            </div>
+          </form>
+
+          {/* Existing Tags List */}
+          {tags.length === 0 ? (
+            <div
+              className="rounded-[24px] p-8 text-center text-sm font-medium"
+              style={{
+                backgroundColor: 'var(--m3-surface-bright)',
+                color: 'var(--m3-on-surface-variant)',
+              }}
+            >
+              No tags yet. Create your first tag above!
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {tags.map((tag, idx) => {
+                const isFirst = idx === 0;
+                const isLast = idx === tags.length - 1;
+                const radius =
+                  tags.length === 1
+                    ? 'rounded-[24px]'
+                    : isFirst
+                      ? 'rounded-t-[24px] rounded-b-[6px]'
+                      : isLast
+                        ? 'rounded-t-[6px] rounded-b-[24px]'
+                        : 'rounded-[6px]';
+                const taskCount = tasks.filter((t) => (t.tagIds ?? []).includes(tag.id)).length;
+                const isEditing = editingTagId === tag.id;
+
+                return (
+                  <div
+                    key={tag.id}
+                    className={`p-4 ${radius}`}
+                    style={{ backgroundColor: 'var(--m3-surface-bright)' }}
+                  >
+                    {isEditing ? (
+                      <div className="space-y-3">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={editingTagName}
+                            onChange={(e) => setEditingTagName(e.target.value)}
+                            className="flex-1 min-w-0 px-3.5 py-2 rounded-full text-sm font-semibold outline-none"
+                            style={{
+                              backgroundColor: 'var(--m3-surface-container-low)',
+                              color: 'var(--m3-on-surface)',
+                            }}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (editingTagName.trim()) {
+                                onUpdateTag({
+                                  ...tag,
+                                  name: editingTagName.trim(),
+                                  color: editingTagColor,
+                                });
+                              }
+                              setEditingTagId(null);
+                            }}
+                            className="px-4 py-2 rounded-full text-xs font-bold cursor-pointer"
+                            style={{
+                              backgroundColor: 'var(--m3-primary)',
+                              color: 'var(--m3-on-primary)',
+                            }}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingTagId(null)}
+                            className="p-2 rounded-full hover:bg-black/5 cursor-pointer"
+                            aria-label="Cancel"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {COLOR_SCHEMES.map((item) => {
+                            const sel = editingTagColor.toLowerCase() === item.color.toLowerCase();
+                            return (
+                              <button
+                                key={item.color}
+                                type="button"
+                                onClick={() => setEditingTagColor(item.color)}
+                                className="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
+                                style={{
+                                  backgroundColor: item.color,
+                                  boxShadow: sel
+                                    ? '0 0 0 2px var(--m3-surface), 0 0 0 3.5px var(--m3-primary)'
+                                    : 'none',
+                                }}
+                              >
+                                {sel && <Check size={11} color="#1a1c16" strokeWidth={3} />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span
+                            className="w-4 h-4 rounded-full shrink-0"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <div className="min-w-0">
+                            <div className="font-bold text-sm truncate">#{tag.name}</div>
+                            <div className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                              {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTagId(tag.id);
+                              setEditingTagName(tag.name);
+                              setEditingTagColor(tag.color);
+                            }}
+                            className="p-2 rounded-full hover:bg-black/5 cursor-pointer"
+                            title="Edit tag"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteTag(tag.id)}
+                            className="p-2 rounded-full hover:bg-black/5 cursor-pointer"
+                            style={{ color: 'var(--m3-error)' }}
+                            title="Delete tag"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const primaryItems: {
     route: SettingsSubScreen;
     icon: React.ReactNode;
@@ -1634,6 +1880,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       icon: <Tag size={20} />,
       title: 'Topics',
       subtitle: `${topics.length} ${topics.length === 1 ? 'topic' : 'topics'} configured`,
+    },
+    {
+      route: 'tags',
+      icon: <Hash size={20} />,
+      title: 'Tags',
+      subtitle: `${tags.length} ${tags.length === 1 ? 'tag' : 'tags'} configured`,
     },
     {
       route: 'advanced',

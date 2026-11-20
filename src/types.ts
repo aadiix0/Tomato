@@ -33,6 +33,7 @@ export interface Topic {
   /** Hex color string, or '#ffffff' meaning "Default / App scheme" */
   color: string;
   shape: TopicShape;
+  tagIds?: string[];
   focusTime: number; // ms
   shortBreakTime: number; // ms
   longBreakTime: number; // ms
@@ -56,6 +57,12 @@ export const DEFAULT_TOPIC: Topic = {
   dndEnabled: false,
 };
 
+export interface TagItem {
+  id: string;
+  name: string;
+  color: string;
+}
+
 /**
  * Focus durations for the 4 quarters of a day:
  * Q1: 00:00 - 12:00
@@ -71,6 +78,8 @@ export interface Stat {
   focusTimeQ3: number;
   focusTimeQ4: number;
   breakTime: number;
+  /** Optional map of tagId -> focus ms recorded with that tag active */
+  tagMs?: Record<string, number>;
 }
 
 export type TimerMode = 'FOCUS' | 'SHORT_BREAK' | 'LONG_BREAK';
@@ -168,6 +177,7 @@ export interface Task {
   id: string;
   title: string;
   topicId: number;
+  tagIds?: string[];
   list: TaskListType;
   estimatedMinutes: number;
   actualMs: number;
@@ -206,6 +216,7 @@ export type SettingsSubScreen =
   | 'timer'
   | 'alarm'
   | 'topics'
+  | 'tags'
   | 'advanced'
   | 'backup'
   | 'about';

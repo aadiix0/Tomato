@@ -1,4 +1,4 @@
-import type { SettingsState, Stat, Task, Topic } from '../types';
+import type { SettingsState, Stat, TagItem, Task, Topic } from '../types';
 import { DEFAULT_SETTINGS, DEFAULT_TOPIC, DEFAULT_TOPIC_ID } from '../types';
 
 export interface PersistedBundle {
@@ -9,6 +9,7 @@ export interface PersistedBundle {
   currentTopicId: number;
   stats: Stat[];
   tasks: Task[];
+  tags?: TagItem[];
   settings: SettingsState;
 }
 
@@ -18,6 +19,7 @@ export const STORAGE_KEYS = {
   STATS: 'tomato_stats_v2',
   SETTINGS: 'tomato_settings_v2',
   TASKS: 'tomato_tasks_v2',
+  TAGS: 'tomato_tags_v2',
   LAST_MODIFIED: 'tomato_last_modified_v2',
   SNAPSHOT: 'tomato_backup_snapshot',
 };
@@ -78,6 +80,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
     const rawStats = localStorage.getItem(STORAGE_KEYS.STATS);
     const rawSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     const rawTasks = localStorage.getItem(STORAGE_KEYS.TASKS);
+    const rawTags = localStorage.getItem(STORAGE_KEYS.TAGS);
     const rawModified = localStorage.getItem(STORAGE_KEYS.LAST_MODIFIED);
 
     const topics: Topic[] = rawTopics ? JSON.parse(rawTopics) : [DEFAULT_TOPIC];
@@ -86,6 +89,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
     const currentTopicId: number = rawId ? JSON.parse(rawId) : DEFAULT_TOPIC_ID;
     const stats: Stat[] = rawStats ? JSON.parse(rawStats) : [];
     const tasks: Task[] = rawTasks ? JSON.parse(rawTasks) : [];
+    const tags: TagItem[] = rawTags ? JSON.parse(rawTags) : [];
     const settings: SettingsState = {
       ...DEFAULT_SETTINGS,
       ...(rawSettings ? JSON.parse(rawSettings) : {}),
@@ -99,6 +103,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
       currentTopicId: safeTopics.some((t) => t.id === currentTopicId) ? currentTopicId : safeTopics[0].id,
       stats: Array.isArray(stats) ? stats : [],
       tasks: Array.isArray(tasks) ? tasks : [],
+      tags: Array.isArray(tags) ? tags : [],
       settings,
     };
   } catch {
@@ -115,6 +120,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
             currentTopicId: parsed.currentTopicId || DEFAULT_TOPIC_ID,
             stats: Array.isArray(parsed.stats) ? parsed.stats : [],
             tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+            tags: Array.isArray(parsed.tags) ? parsed.tags : [],
             settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
           };
         }
@@ -130,6 +136,7 @@ export function loadInitialFromLocalStorage(): PersistedBundle {
       currentTopicId: DEFAULT_TOPIC_ID,
       stats: [],
       tasks: [],
+      tags: [],
       settings: DEFAULT_SETTINGS,
     };
   }
@@ -181,6 +188,7 @@ export function persistFullState(bundle: PersistedBundle): void {
     localStorage.setItem(STORAGE_KEYS.CURRENT_TOPIC_ID, JSON.stringify(bundle.currentTopicId));
     localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(bundle.stats));
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(bundle.tasks));
+    localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify(bundle.tags ?? []));
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(bundle.settings));
     localStorage.setItem(STORAGE_KEYS.LAST_MODIFIED, String(bundle.lastModified));
     localStorage.setItem(STORAGE_KEYS.SNAPSHOT, json);

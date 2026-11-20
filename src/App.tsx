@@ -65,6 +65,8 @@ export function App() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
+  const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
   const prevAlarmRef = useRef(false);
 
   const showToast = useCallback((message: string, icon: 'cloud' | 'check' | 'alert' = 'cloud') => {
@@ -126,6 +128,35 @@ export function App() {
       document.title = 'Zonein';
     }
   }, [store.timerState.timerRunning, store.timerState.timeStr, store.timerState.timerMode]);
+
+  // Sync live timer state to the Windows Taskbar Dynamic Island (Electron)
+  useEffect(() => {
+    window.electronIsland?.sendTimerState({
+      timeStr: store.timerState.timeStr,
+      progress: store.progress,
+      timerRunning: store.timerState.timerRunning,
+      timerMode: store.timerState.timerMode,
+      infiniteFocus: store.timerState.infiniteFocus,
+    });
+  }, [
+    store.timerState.timeStr,
+    store.progress,
+    store.timerState.timerRunning,
+    store.timerState.timerMode,
+    store.timerState.infiniteFocus,
+  ]);
+
+  // Handle Play/Pause and Skip actions from the Windows Taskbar Dynamic Island
+  useEffect(() => {
+    if (!window.electronIsland) return;
+    return window.electronIsland.onAction((action) => {
+      if (action === 'toggle') {
+        store.toggleTimer();
+      } else if (action === 'skip') {
+        store.skipTimer();
+      }
+    });
+  }, [store.toggleTimer, store.skipTimer]);
 
   // Desktop keyboard shortcuts (Space: Play/Pause, R: Reset, S: Skip)
   useEffect(() => {
@@ -316,6 +347,7 @@ export function App() {
     store.topics,
     store.stats,
     store.tasks,
+    store.tags,
     store.settings.theme,
     store.settings.colorScheme,
     store.settings.blackTheme,
@@ -341,44 +373,162 @@ export function App() {
     store.updateSettings,
   ]);
 
-  // Keep Document Picture-in-Picture mini-timer in sync
+  // Draw live timer onto offscreen Canvas for universal Video Picture-in-Picture
+  const drawPipCanvas = useCallback(() => {
+    const canvas = pipCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    const focusMode = store.timerState.timerMode === 'FOCUS';
+    const accent = focusMode ? '#d0bcff' : '#9cd59f';
+
+    // Background
+    ctx.fillStyle = '#141318';
+    ctx.fillRect(0, 0, w, h);
+
+    // Subtle top accent bar
+    ctx.fillStyle = accent;
+    ctx.fillRect(0, 0, w, 6);
+
+    // Mode + Topic/Task label
+    const modeLabel =
+      store.timerState.timerMode === 'FOCUS'
+        ? store.timerState.infiniteFocus
+          ? 'INFINITE FOCUS'
+          : `FOCUS · ${store.timerState.currentFocusCount}/${store.timerState.totalFocusCount}`
+        : store.timerState.timerMode === 'SHORT_BREAK'
+          ? 'SHORT BREAK'
+          : 'LONG BREAK';
+
+    ctx.fillStyle = accent;
+    ctx.font = '700 22px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(modeLabel, w / 2, 54);
+
+    // Main countdown digits
+    ctx.fillStyle = '#f4eff4';
+    ctx.font = '800 112px system-ui, -apple-system, sans-serif';
+    ctx.fillText(store.timerState.timeStr, w / 2, 168);
+
+    // Topic or Active Task name
+    const subLabel = store.activeTask ? store.activeTask.title : store.currentTopic.name;
+    ctx.fillStyle = 'rgba(244, 239, 244, 0.72)';
+    ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+    ctx.fillText(subLabel.slice(0, 28), w / 2, 212);
+
+    // Progress bar
+    const barX = 48;
+    const barY = 238;
+    const barW = w - 96;
+    const barH = 12;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, 6);
+    ctx.fill();
+
+    const fillW = Math.max(0, Math.min(1, store.progress)) * barW;
+    if (fillW > 0) {
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, fillW, barH, 6);
+      ctx.fill();
+    }
+  }, [
+    store.timerState.timerMode,
+    store.timerState.infiniteFocus,
+    store.timerState.currentFocusCount,
+    store.timerState.totalFocusCount,
+    store.timerState.timeStr,
+    store.activeTask,
+    store.currentTopic.name,
+    store.progress,
+  ]);
+
+  // Keep Document PiP and Canvas Video PiP in sync with timer updates
   useEffect(() => {
     const pipWin = pipWindowRef.current;
-    if (!pipWin || pipWin.closed) return;
-    const timeEl = pipWin.document.getElementById('pip-time');
-    const labelEl = pipWin.document.getElementById('pip-label');
-    const btnEl = pipWin.document.getElementById('pip-toggle');
-    if (timeEl) timeEl.textContent = store.timerState.timeStr;
-    if (labelEl) {
-      labelEl.textContent = store.activeTask ? store.activeTask.title : store.currentTopic.name;
+    if (pipWin && !pipWin.closed) {
+      const timeEl = pipWin.document.getElementById('pip-time');
+      const labelEl = pipWin.document.getElementById('pip-label');
+      const btnEl = pipWin.document.getElementById('pip-toggle');
+      if (timeEl) timeEl.textContent = store.timerState.timeStr;
+      if (labelEl) {
+        labelEl.textContent = store.activeTask ? store.activeTask.title : store.currentTopic.name;
+      }
+      if (btnEl) btnEl.textContent = store.timerState.timerRunning ? 'Pause' : 'Resume';
     }
-    if (btnEl) btnEl.textContent = store.timerState.timerRunning ? 'Pause' : 'Resume';
+    if (document.pictureInPictureElement && pipVideoRef.current === document.pictureInPictureElement) {
+      drawPipCanvas();
+    }
   }, [
     store.timerState.timeStr,
     store.timerState.timerRunning,
     store.activeTask,
     store.currentTopic.name,
+    drawPipCanvas,
   ]);
 
-  const handleOpenExternalPiP = useCallback(async () => {
+  const handleOpenVideoPiP = useCallback(async (): Promise<boolean> => {
+    try {
+      if (!document.pictureInPictureEnabled) return false;
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        return true;
+      }
+      let canvas = pipCanvasRef.current;
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.width = 480;
+        canvas.height = 270;
+        pipCanvasRef.current = canvas;
+      }
+      drawPipCanvas();
+
+      let video = pipVideoRef.current;
+      if (!video) {
+        video = document.createElement('video');
+        video.muted = true;
+        video.playsInline = true;
+        video.srcObject = canvas.captureStream(5);
+        pipVideoRef.current = video;
+      }
+      await video.play();
+      await video.requestPictureInPicture();
+
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.setActionHandler('play', () => store.toggleTimer());
+          navigator.mediaSession.setActionHandler('pause', () => store.toggleTimer());
+          navigator.mediaSession.setActionHandler('nexttrack', () => store.skipTimer());
+        } catch {
+          // Ignore unsupported mediaSession actions
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }, [drawPipCanvas, store]);
+
+  const handleOpenExternalPiP = useCallback(async (): Promise<boolean> => {
     const dpip = (window as unknown as {
       documentPictureInPicture?: {
         requestWindow: (opts: { width: number; height: number }) => Promise<Window>;
       };
     }).documentPictureInPicture;
 
-    if (!dpip) {
-      setPipNotice('Pop-out window requires Chrome or Edge desktop.');
-      window.setTimeout(() => setPipNotice(null), 3500);
-      return;
+    if (!dpip || window.self !== window.top) {
+      return false;
     }
 
     try {
       if (pipWindowRef.current && !pipWindowRef.current.closed) {
         pipWindowRef.current.focus();
-        return;
+        return true;
       }
-      const pipWin = await dpip.requestWindow({ width: 290, height: 148 });
+      const pipWin = await dpip.requestWindow({ width: 290, height: 156 });
       pipWindowRef.current = pipWin;
       pipWin.document.body.style.margin = '0';
       pipWin.document.body.style.fontFamily = 'system-ui, -apple-system, sans-serif';
@@ -405,16 +555,20 @@ export function App() {
 
       const time = pipWin.document.createElement('div');
       time.id = 'pip-time';
-      time.style.fontSize = '40px';
+      time.style.fontSize = '42px';
       time.style.fontWeight = '800';
       time.style.fontVariantNumeric = 'tabular-nums';
       time.style.lineHeight = '1';
       time.textContent = store.timerState.timeStr;
 
+      const controls = pipWin.document.createElement('div');
+      controls.style.display = 'flex';
+      controls.style.gap = '8px';
+      controls.style.marginTop = '4px';
+
       const btn = pipWin.document.createElement('button');
       btn.id = 'pip-toggle';
       btn.textContent = store.timerState.timerRunning ? 'Pause' : 'Resume';
-      btn.style.marginTop = '4px';
       btn.style.padding = '6px 18px';
       btn.style.borderRadius = '999px';
       btn.style.border = 'none';
@@ -425,17 +579,41 @@ export function App() {
       btn.style.cursor = 'pointer';
       btn.onclick = () => store.toggleTimer();
 
-      pipWin.document.body.append(label, time, btn);
+      const skipBtn = pipWin.document.createElement('button');
+      skipBtn.textContent = 'Skip';
+      skipBtn.style.padding = '6px 14px';
+      skipBtn.style.borderRadius = '999px';
+      skipBtn.style.border = 'none';
+      skipBtn.style.background = '#313033';
+      skipBtn.style.color = '#e6e1e5';
+      skipBtn.style.fontWeight = '700';
+      skipBtn.style.fontSize = '12px';
+      skipBtn.style.cursor = 'pointer';
+      skipBtn.onclick = () => store.skipTimer();
+
+      controls.append(btn, skipBtn);
+      pipWin.document.body.append(label, time, controls);
+      return true;
     } catch {
-      setPipNotice('Pop-out window is unavailable in this view. Using in-app Mini-Timer.');
-      window.setTimeout(() => setPipNotice(null), 3000);
+      return false;
     }
   }, [store]);
 
-  const handleOpenPiP = useCallback(() => {
+  const handleOpenPiP = useCallback(async () => {
+    // 1. Try real interactive Document PiP (Chrome/Edge)
+    const openedDocPip = await handleOpenExternalPiP();
+    if (openedDocPip) return;
+
+    // 2. Try universal OS-level Video PiP (works across tabs & apps)
+    const openedVideoPip = await handleOpenVideoPiP();
+    if (openedVideoPip) return;
+
+    // 3. Fallback to in-app Mini-Timer if browser/sandbox blocks PiP
     setMiniPos({ x: 0, y: 0 });
     setMiniTimerMode(true);
-  }, []);
+    setPipNotice('Floating PiP is blocked in this view — using in-app Mini-Timer.');
+    window.setTimeout(() => setPipNotice(null), 3500);
+  }, [handleOpenExternalPiP, handleOpenVideoPiP]);
 
   const handleCompleteTask = useCallback(
     (taskId: string) => {
@@ -572,6 +750,8 @@ export function App() {
           timerState={store.timerState}
           topics={store.topics}
           currentTopic={store.currentTopic}
+          tags={store.tags}
+          activeTagIds={store.activeTagIds}
           activeTask={store.activeTask}
           sessionActive={store.sessionActive}
           progress={store.progress}
@@ -589,12 +769,14 @@ export function App() {
           onSkipTimer={store.skipTimer}
           onToggleInfiniteFocus={store.toggleInfiniteFocus}
           onSelectTopic={store.selectTopic}
+          onToggleActiveTag={store.toggleActiveTag}
+          onCreateTag={store.createTag}
           onCompleteActiveTask={() => {
             if (store.activeTask) handleCompleteTask(store.activeTask.id);
           }}
           onOpenPiP={handleOpenPiP}
           onSendNoteToBacklog={(title) => {
-            store.createTask(title, 25, store.currentTopic.id, 'backlog');
+            store.createTask(title, 25, store.currentTopic.id, 'backlog', store.activeTagIds);
           }}
           onAddTopic={() => setTopicModal({ open: true, setAsCurrent: true })}
           onOpenTopicSettings={() => {
@@ -612,9 +794,12 @@ export function App() {
         <TasksScreen
           tasks={store.tasks}
           topics={store.topics}
+          tags={store.tags}
           activeTaskId={store.activeTaskId}
           hasCustomBg={hasCustomBg}
           onCreateTask={store.createTask}
+          onUpdateTaskTags={store.updateTaskTags}
+          onCreateTag={store.createTag}
           onDeleteTask={store.deleteTask}
           onMoveTask={store.moveTask}
           onCompleteTask={handleCompleteTask}
@@ -632,6 +817,7 @@ export function App() {
           stats={store.stats}
           topics={store.topics}
           tasks={store.tasks}
+          tags={store.tags}
           focusGoal={store.settings.focusGoal}
           subScreen={statsSub}
           hasCustomBg={hasCustomBg}
@@ -643,6 +829,8 @@ export function App() {
         <SettingsScreen
           settings={store.settings}
           topics={store.topics}
+          tags={store.tags}
+          tasks={store.tasks}
           subScreen={settingsSub}
           lastModified={store.lastModified}
           isPristine={store.isPristine}
@@ -651,6 +839,9 @@ export function App() {
           onAddTopic={() => setTopicModal({ open: true, setAsCurrent: false })}
           onEditTopic={(topic) => setTopicModal({ open: true, editing: topic })}
           onDeleteTopic={store.deleteTopic}
+          onCreateTag={store.createTag}
+          onUpdateTag={store.updateTag}
+          onDeleteTag={store.deleteTag}
           onEraseAllData={store.eraseAllData}
           onExportBackup={store.exportBackupJson}
           onImportBackup={store.importBackupJson}
@@ -952,6 +1143,8 @@ export function App() {
         <TopicModal
           initialTopic={topicModal.editing}
           existingNames={store.topics.map((t) => t.name)}
+          tags={store.tags}
+          onCreateTag={store.createTag}
           onClose={() => setTopicModal({ open: false })}
           onSave={(data, existingId) => {
             if (existingId !== undefined) {

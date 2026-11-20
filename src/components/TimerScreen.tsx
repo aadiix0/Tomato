@@ -15,7 +15,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { Task, TimerState, Topic } from '../types';
+import type { TagItem, Task, TimerState, Topic } from '../types';
 import { TopicShapeIcon } from './TopicShapeIcon';
 import { FocusToolsBar } from './FocusToolsBar';
 
@@ -23,6 +23,8 @@ interface TimerScreenProps {
   timerState: TimerState;
   topics: Topic[];
   currentTopic: Topic;
+  tags: TagItem[];
+  activeTagIds: string[];
   activeTask: Task | null;
   sessionActive: boolean;
   progress: number;
@@ -33,6 +35,8 @@ interface TimerScreenProps {
   onSkipTimer: () => void;
   onToggleInfiniteFocus: () => boolean;
   onSelectTopic: (topicId: number) => void;
+  onToggleActiveTag: (tagId: string) => void;
+  onCreateTag: (name: string, color: string) => TagItem;
   onAddTopic: () => void;
   onOpenTopicSettings: () => void;
   onEnterAod: () => void;
@@ -65,6 +69,8 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
   timerState,
   topics,
   currentTopic,
+  tags,
+  activeTagIds,
   activeTask,
   sessionActive,
   progress,
@@ -75,6 +81,8 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
   onSkipTimer,
   onToggleInfiniteFocus,
   onSelectTopic,
+  onToggleActiveTag,
+  onCreateTag,
   onAddTopic,
   onOpenTopicSettings,
   onEnterAod,
@@ -94,6 +102,8 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
   const [snackbar, setSnackbar] = useState<{ message: string; canUndo?: boolean } | null>(null);
   const snackbarTimeout = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const activeTags = tags.filter((t) => activeTagIds.includes(t.id));
 
   const isFocus = timerState.timerMode === 'FOCUS';
   const accentColor = isFocus ? 'var(--m3-primary)' : 'var(--m3-tertiary)';
@@ -173,7 +183,7 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
           </button>
         </div>
 
-        <div className="text-center">
+        <div className="text-center relative">
           <h1
             className="text-3xl font-extrabold tracking-tight transition-colors duration-300"
             style={{ color: titleColor }}
@@ -187,6 +197,33 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
             <TopicShapeIcon shape={currentTopic.shape} color={currentTopic.color} size={14} />
             <span>{currentTopic.name}</span>
           </div>
+
+          {/* Stylish Tag Pills under Topic */}
+          {activeTags.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+              {activeTags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold tracking-wide backdrop-blur-xs select-none"
+                  style={{
+                    backgroundColor: `${tag.color}24`,
+                    border: `1px solid ${tag.color}88`,
+                    color: 'var(--m3-on-surface)',
+                    boxShadow: `0 2px 10px ${tag.color}22`,
+                  }}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{
+                      backgroundColor: tag.color,
+                      boxShadow: `0 0 6px ${tag.color}`,
+                    }}
+                  />
+                  <span>#{tag.name}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="relative" ref={menuRef}>
@@ -672,6 +709,27 @@ export const TimerScreen: React.FC<TimerScreenProps> = ({
                     Blitzing task
                   </div>
                   <div className="text-sm font-bold truncate">{activeTask.title}</div>
+                  {activeTask.tagIds && activeTask.tagIds.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {activeTask.tagIds.map((tid) => {
+                        const t = tags.find((x) => x.id === tid);
+                        if (!t) return null;
+                        return (
+                          <span
+                            key={tid}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                            style={{
+                              backgroundColor: 'var(--m3-surface-bright)',
+                              color: 'var(--m3-on-surface)',
+                            }}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: t.color }} />
+                            #{t.name}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"

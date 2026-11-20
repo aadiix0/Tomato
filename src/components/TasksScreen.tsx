@@ -5,19 +5,29 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  Hash,
   Plus,
   Trash2,
   Zap,
 } from 'lucide-react';
-import type { Task, TaskListType, Topic } from '../types';
+import { COLOR_SCHEMES, type TagItem, type Task, type TaskListType, type Topic } from '../types';
 import { millisecondsToHoursMinutes } from '../utils/time';
 import { TopicShapeIcon } from './TopicShapeIcon';
 
 interface TasksScreenProps {
   tasks: Task[];
   topics: Topic[];
+  tags: TagItem[];
   activeTaskId: string | null;
-  onCreateTask: (title: string, estimatedMinutes: number, topicId: number, list: TaskListType) => void;
+  onCreateTask: (
+    title: string,
+    estimatedMinutes: number,
+    topicId: number,
+    list: TaskListType,
+    tagIds?: string[]
+  ) => void;
+  onUpdateTaskTags: (taskId: string, tagIds: string[]) => void;
+  onCreateTag: (name: string, color: string) => TagItem;
   onDeleteTask: (taskId: string) => void;
   onMoveTask: (taskId: string, list: TaskListType) => void;
   onCompleteTask: (taskId: string) => void;
@@ -30,8 +40,11 @@ interface TasksScreenProps {
 export const TasksScreen: React.FC<TasksScreenProps> = ({
   tasks,
   topics,
+  tags,
   activeTaskId,
   onCreateTask,
+  onUpdateTaskTags,
+  onCreateTag,
   onDeleteTask,
   onMoveTask,
   onCompleteTask,
@@ -41,14 +54,43 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
   hasCustomBg = false,
 }) => {
   const [selectedList, setSelectedList] = useState<TaskListType>('today');
+  const [selectedFilterTagId, setSelectedFilterTagId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [estMinutes, setEstMinutes] = useState(25);
   const [topicId, setTopicId] = useState<number>(topics[0]?.id ?? 1);
+  const [newTaskTagIds, setNewTaskTagIds] = useState<string[]>([]);
+  const [quickTagInput, setQuickTagInput] = useState('');
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [subtaskText, setSubtaskText] = useState('');
 
-  const filteredTasks = tasks.filter((t) => t.list === selectedList);
+  const filteredTasks = tasks.filter(
+    (t) =>
+      t.list === selectedList &&
+      (!selectedFilterTagId || (t.tagIds ?? []).includes(selectedFilterTagId))
+  );
   const totalEstMinutes = filteredTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
+
+  const toggleNewTaskTag = (tagId: string) => {
+    setNewTaskTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    );
+  };
+
+  const handleQuickAddTag = () => {
+    const trimmed = quickTagInput.trim().replace(/^#+/, '');
+    if (!trimmed) return;
+    const existing = tags.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      if (!newTaskTagIds.includes(existing.id)) {
+        setNewTaskTagIds((prev) => [...prev, existing.id]);
+      }
+    } else {
+      const color = COLOR_SCHEMES[tags.length % COLOR_SCHEMES.length].color;
+      const created = onCreateTag(trimmed, color);
+      setNewTaskTagIds((prev) => [...prev, created.id]);
+    }
+    setQuickTagInput('');
+  };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,9 +100,11 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
       trimmed,
       Math.max(1, estMinutes),
       topicId,
-      selectedList === 'done' ? 'today' : selectedList
+      selectedList === 'done' ? 'today' : selectedList,
+      newTaskTagIds
     );
     setTitle('');
+    setNewTaskTagIds([]);
   };
 
   const tabs: { id: TaskListType; label: string; count: number }[] = [
@@ -107,6 +151,55 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
             );
           })}
         </div>
+
+        {/* Tag Filter Bar */}
+        {tags.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+            <button
+              type="button"
+              onClick={() => setSelectedFilterTagId(null)}
+              className="px-3 py-1.5 rounded-full text-xs font-bold shrink-0 cursor-pointer transition-colors"
+              style={{
+                backgroundColor:
+                  selectedFilterTagId === null
+                    ? 'var(--m3-primary)'
+                    : 'var(--m3-surface-bright)',
+                color:
+                  selectedFilterTagId === null
+                    ? 'var(--m3-on-primary)'
+                    : 'var(--m3-on-surface-variant)',
+              }}
+            >
+              All tags
+            </button>
+            {tags.map((tag) => {
+              const active = selectedFilterTagId === tag.id;
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => setSelectedFilterTagId(active ? null : tag.id)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shrink-0 cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: active
+                      ? 'var(--m3-primary-container)'
+                      : 'var(--m3-surface-bright)',
+                    color: active
+                      ? 'var(--m3-on-primary-container)'
+                      : 'var(--m3-on-surface)',
+                    border: active ? `1.5px solid ${tag.color}` : '1.5px solid transparent',
+                  }}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  #{tag.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Quick Add Form */}
         {selectedList !== 'done' && (
@@ -171,6 +264,54 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
                 <Plus size={15} />
                 Add Task
               </button>
+            </div>
+
+            {/* Tag Picker for New Task */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <Hash size={13} style={{ color: 'var(--m3-outline)' }} />
+              {tags.map((tag) => {
+                const selected = newTaskTagIds.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => toggleNewTaskTag(tag.id)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold cursor-pointer transition-all"
+                    style={{
+                      backgroundColor: selected
+                        ? 'var(--m3-primary-container)'
+                        : 'var(--m3-surface-container-low)',
+                      color: selected
+                        ? 'var(--m3-on-primary-container)'
+                        : 'var(--m3-on-surface-variant)',
+                      border: selected ? `1px solid ${tag.color}` : '1px solid transparent',
+                    }}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    #{tag.name}
+                  </button>
+                );
+              })}
+              <input
+                type="text"
+                value={quickTagInput}
+                onChange={(e) => setQuickTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleQuickAddTag();
+                  }
+                }}
+                placeholder="+ new tag"
+                className="w-24 px-2.5 py-1 rounded-full text-[11px] font-medium outline-none"
+                style={{
+                  backgroundColor: 'var(--m3-surface-container-low)',
+                  color: 'var(--m3-on-surface)',
+                }}
+              />
             </div>
           </form>
         )}
@@ -247,6 +388,26 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
                               {topic.name}
                             </span>
                           )}
+                          {(task.tagIds ?? []).map((tid) => {
+                            const tag = tags.find((t) => t.id === tid);
+                            if (!tag) return null;
+                            return (
+                              <span
+                                key={tid}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                                style={{
+                                  backgroundColor: 'var(--m3-surface-container-high)',
+                                  color: 'var(--m3-on-surface)',
+                                }}
+                              >
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full"
+                                  style={{ backgroundColor: tag.color }}
+                                />
+                                #{tag.name}
+                              </span>
+                            );
+                          })}
                           <span className="tabular-nums">Est. {task.estimatedMinutes}m</span>
                           {task.actualMs > 0 && (
                             <span className="tabular-nums font-semibold">
@@ -299,9 +460,45 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
                     </div>
                   </div>
 
-                  {/* Subtasks Drawer */}
+                  {/* Subtasks & Tags Drawer */}
                   {isExpanded && (
-                    <div className="pl-8 space-y-2 pt-1">
+                    <div className="pl-8 space-y-2.5 pt-1">
+                      {tags.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                          <span className="text-[11px] font-semibold opacity-70">Tags:</span>
+                          {tags.map((tag) => {
+                            const hasTag = (task.tagIds ?? []).includes(tag.id);
+                            return (
+                              <button
+                                key={tag.id}
+                                type="button"
+                                onClick={() => {
+                                  const current = task.tagIds ?? [];
+                                  const next = hasTag
+                                    ? current.filter((id) => id !== tag.id)
+                                    : [...current, tag.id];
+                                  onUpdateTaskTags(task.id, next);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold cursor-pointer transition-all"
+                                style={{
+                                  backgroundColor: hasTag
+                                    ? 'var(--m3-primary-container)'
+                                    : 'var(--m3-surface-container-low)',
+                                  color: hasTag
+                                    ? 'var(--m3-on-primary-container)'
+                                    : 'var(--m3-on-surface-variant)',
+                                }}
+                              >
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full"
+                                  style={{ backgroundColor: tag.color }}
+                                />
+                                #{tag.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                       {task.subtasks.map((sub) => (
                         <button
                           key={sub.id}

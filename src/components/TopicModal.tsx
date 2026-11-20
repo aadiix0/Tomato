@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Check, X } from 'lucide-react';
+import { Check, Hash, Plus, X } from 'lucide-react';
 import {
   COLOR_SCHEMES,
   TOPIC_SHAPES,
+  type TagItem,
   type Topic,
   type TopicShape,
 } from '../types';
@@ -11,6 +12,8 @@ import { TopicShapeIcon } from './TopicShapeIcon';
 interface TopicModalProps {
   initialTopic?: Topic;
   existingNames: string[];
+  tags: TagItem[];
+  onCreateTag: (name: string, color: string) => TagItem;
   onClose: () => void;
   onSave: (data: Omit<Topic, 'id'>, existingId?: number) => void;
 }
@@ -18,12 +21,16 @@ interface TopicModalProps {
 export const TopicModal: React.FC<TopicModalProps> = ({
   initialTopic,
   existingNames,
+  tags,
+  onCreateTag,
   onClose,
   onSave,
 }) => {
   const [name, setName] = useState(initialTopic?.name ?? '');
   const [color, setColor] = useState(initialTopic?.color ?? '#ffffff');
   const [shape, setShape] = useState<TopicShape>(initialTopic?.shape ?? 'COOKIE_7_SIDED');
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(initialTopic?.tagIds ?? []);
+  const [quickTagName, setQuickTagName] = useState('');
   const [focusMin, setFocusMin] = useState(
     Math.round((initialTopic?.focusTime ?? 25 * 60 * 1000) / 60000)
   );
@@ -38,6 +45,28 @@ export const TopicModal: React.FC<TopicModalProps> = ({
     initialTopic?.autostartNextSession ?? false
   );
   const [error, setError] = useState('');
+
+  const toggleTag = (tagId: string) => {
+    setSelectedTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    );
+  };
+
+  const handleQuickCreateTag = () => {
+    const trimmed = quickTagName.trim().replace(/^#+/, '');
+    if (!trimmed) return;
+    const existing = tags.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      if (!selectedTagIds.includes(existing.id)) {
+        setSelectedTagIds((prev) => [...prev, existing.id]);
+      }
+    } else {
+      const tagColor = COLOR_SCHEMES[tags.length % COLOR_SCHEMES.length].color;
+      const created = onCreateTag(trimmed, tagColor);
+      setSelectedTagIds((prev) => [...prev, created.id]);
+    }
+    setQuickTagName('');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +90,7 @@ export const TopicModal: React.FC<TopicModalProps> = ({
         name: trimmed,
         color,
         shape,
+        tagIds: selectedTagIds,
         focusTime: Math.max(1, focusMin) * 60 * 1000,
         shortBreakTime: Math.max(1, shortBreakMin) * 60 * 1000,
         longBreakTime: Math.max(1, longBreakMin) * 60 * 1000,
@@ -195,6 +225,95 @@ export const TopicModal: React.FC<TopicModalProps> = ({
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Default Session Tags */}
+          <div
+            className="rounded-2xl p-4 space-y-2.5"
+            style={{ backgroundColor: 'var(--m3-surface-container-high)' }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5"
+                style={{ color: 'var(--m3-outline)' }}
+              >
+                <Hash size={13} />
+                Session Tags
+              </span>
+              {selectedTagIds.length > 0 && (
+                <span className="text-[11px] font-semibold" style={{ color: 'var(--m3-primary)' }}>
+                  {selectedTagIds.length} selected
+                </span>
+              )}
+            </div>
+
+            {tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((tag) => {
+                  const selected = selectedTagIds.includes(tag.id);
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => toggleTag(tag.id)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer transition-all"
+                      style={{
+                        backgroundColor: selected
+                          ? 'var(--m3-primary-container)'
+                          : 'var(--m3-surface-bright)',
+                        color: selected
+                          ? 'var(--m3-on-primary-container)'
+                          : 'var(--m3-on-surface-variant)',
+                        border: selected ? `1.5px solid ${tag.color}` : '1.5px solid transparent',
+                      }}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      <span>#{tag.name}</span>
+                      {selected && <Check size={11} strokeWidth={3} />}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: 'var(--m3-on-surface-variant)' }}>
+                Create tags (e.g. #h1, #bugcrowd) to auto-tag sessions under this topic.
+              </p>
+            )}
+
+            <div className="flex gap-1.5 pt-1">
+              <input
+                type="text"
+                value={quickTagName}
+                onChange={(e) => setQuickTagName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleQuickCreateTag();
+                  }
+                }}
+                placeholder="New tag (e.g. h1, bugcrowd)..."
+                className="flex-1 min-w-0 px-3 py-1.5 rounded-full text-xs outline-none"
+                style={{
+                  backgroundColor: 'var(--m3-surface-bright)',
+                  color: 'var(--m3-on-surface)',
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleQuickCreateTag}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer shrink-0"
+                style={{
+                  backgroundColor: 'var(--m3-primary)',
+                  color: 'var(--m3-on-primary)',
+                }}
+              >
+                <Plus size={12} />
+                Add
+              </button>
             </div>
           </div>
 

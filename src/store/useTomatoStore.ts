@@ -5,6 +5,7 @@ import {
   DEFAULT_TOPIC_ID,
   type SettingsState,
   type Stat,
+  type TagItem,
   type Task,
   type TaskListType,
   type TimerMode,
@@ -106,6 +107,8 @@ export function useTomatoStore() {
   const [stats, setStats] = useState<Stat[]>(initialDataRef.current.stats);
   const [settings, setSettings] = useState<SettingsState>(initialDataRef.current.settings);
   const [tasks, setTasks] = useState<Task[]>(initialDataRef.current.tasks);
+  const [tags, setTags] = useState<TagItem[]>(initialDataRef.current.tags ?? []);
+  const [activeTagIds, setActiveTagIds] = useState<string[]>([]);
   const lastModifiedRef = useRef<number>(initialDataRef.current.lastModified);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -117,6 +120,8 @@ export function useTomatoStore() {
 
   const activeTaskIdRef = useRef<string | null>(activeTaskId);
   activeTaskIdRef.current = activeTaskId;
+  const activeTagIdsRef = useRef<string[]>(activeTagIds);
+  activeTagIdsRef.current = activeTagIds;
 
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
 
@@ -150,6 +155,7 @@ export function useTomatoStore() {
           setTopics(restoredTopics);
           setStats(Array.isArray(persisted.stats) ? persisted.stats : []);
           setTasks(Array.isArray(persisted.tasks) ? persisted.tasks : []);
+          setTags(Array.isArray(persisted.tags) ? persisted.tags : []);
           if (persisted.settings) {
             setSettings((prev) => ({ ...prev, ...persisted.settings }));
           }
@@ -232,9 +238,10 @@ export function useTomatoStore() {
       currentTopicId,
       stats,
       tasks,
+      tags,
       settings,
     });
-  }, [isHydrated, topics, currentTopicId, stats, tasks, settings]);
+  }, [isHydrated, topics, currentTopicId, stats, tasks, tags, settings]);
 
   const sessionActive = useMemo(() => {
     const expectedStart = timerState.infiniteFocus
@@ -249,7 +256,7 @@ export function useTomatoStore() {
   }, [timerState]);
 
   const addStatTime = useCallback(
-    (topicId: number, mode: TimerMode, durationMs: number) => {
+    (topicId: number, mode: TimerMode, durationMs: number, tagIds: string[] = []) => {
       if (durationMs <= 0) return;
       const dateKey = toLocalDateKey();
       const quarter = getDayQuarter();
@@ -257,6 +264,10 @@ export function useTomatoStore() {
       setStats((prev) => {
         const idx = prev.findIndex((s) => s.date === dateKey && s.topicId === topicId);
         if (idx === -1) {
+          const tagMs: Record<string, number> | undefined =
+            mode === 'FOCUS' && tagIds.length > 0
+              ? Object.fromEntries(tagIds.map((id) => [id, durationMs]))
+              : undefined;
           const entry: Stat = {
             date: dateKey,
             topicId,
@@ -265,10 +276,18 @@ export function useTomatoStore() {
             focusTimeQ3: mode === 'FOCUS' && quarter === 'Q3' ? durationMs : 0,
             focusTimeQ4: mode === 'FOCUS' && quarter === 'Q4' ? durationMs : 0,
             breakTime: mode !== 'FOCUS' ? durationMs : 0,
+            ...(tagMs ? { tagMs } : {}),
           };
           return [...prev, entry];
         }
         const existing = prev[idx];
+        let nextTagMs = existing.tagMs;
+        if (mode === 'FOCUS' && tagIds.length > 0) {
+          nextTagMs = { ...(existing.tagMs ?? {}) };
+          for (const tid of tagIds) {
+            nextTagMs[tid] = (nextTagMs[tid] ?? 0) + durationMs;
+          }
+        }
         const updated: Stat = {
           ...existing,
           focusTimeQ1:
@@ -280,6 +299,7 @@ export function useTomatoStore() {
           focusTimeQ4:
             existing.focusTimeQ4 + (mode === 'FOCUS' && quarter === 'Q4' ? durationMs : 0),
           breakTime: existing.breakTime + (mode !== 'FOCUS' ? durationMs : 0),
+          ...(nextTagMs ? { tagMs: nextTagMs } : {}),
         };
         const next = [...prev];
         next[idx] = updated;
@@ -310,7 +330,7 @@ export function useTomatoStore() {
     const elapsed = Math.min(getElapsedInInterval(), intervalDuration);
     const delta = Math.max(0, elapsed - lastSavedDurationRef.current);
     if (delta > 0) {
-      addStatTime(topic.id, state.timerMode, delta);
+      addStatTime(topic.id, state.timerMode, delta, activeTagIdsRef.current);
       if (state.timerMode === 'FOCUS' && activeTaskIdRef.current) {
         const tid = activeTaskIdRef.current;
         setTasks((prev) =>
@@ -480,6 +500,7 @@ export function useTomatoStore() {
       const target = topics.find((t) => t.id === topicId);
       if (!target) return;
       setCurrentTopicId(target.id);
+      setActiveTagIds(target.tagIds ?? []);
       startTimeRef.current = 0;
       pauseTimeRef.current = 0;
       pauseDurationRef.current = 0;
@@ -500,6 +521,7 @@ export function useTomatoStore() {
       setTopics((prev) => [...prev, newTopic]);
       if (setAsCurrent) {
         setCurrentTopicId(newTopic.id);
+        setActiveTagIds(newTopic.tagIds ?? []);
         setTimerState((curr) => ({
           ...buildIntervalState(curr, newTopic, 0, curr.infiniteFocus),
           timerRunning: false,
@@ -534,12 +556,69 @@ export function useTomatoStore() {
     setSettings((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  const createTag = useCallback((name: string, color: string): TagItem => {
+    const trimmed = name.trim().replace(/^#+/, '');
+    const newTag: TagItem = {
+      id: `tag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: trimmed,
+      color,
+    };
+    setTags((prev) => {
+      const existing = prev.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+      if (existing) return prev;
+      return [...prev, newTag];
+    });
+    return newTag;
+  }, []);
+
+  const updateTag = useCallback((updated: TagItem) => {
+    setTags((prev) =>
+      prev.map((t) =>
+        t.id === updated.id
+          ? { ...updated, name: updated.name.trim().replace(/^#+/, '') }
+          : t
+      )
+    );
+  }, []);
+
+  const deleteTag = useCallback((tagId: string) => {
+    setTags((prev) => prev.filter((t) => t.id !== tagId));
+    setActiveTagIds((prev) => prev.filter((id) => id !== tagId));
+    setTopics((prev) =>
+      prev.map((topic) =>
+        topic.tagIds?.includes(tagId)
+          ? { ...topic, tagIds: topic.tagIds.filter((id) => id !== tagId) }
+          : topic
+      )
+    );
+    setTasks((prev) =>
+      prev.map((task) =>
+        task.tagIds?.includes(tagId)
+          ? { ...task, tagIds: task.tagIds.filter((id) => id !== tagId) }
+          : task
+      )
+    );
+  }, []);
+
+  const toggleActiveTag = useCallback((tagId: string) => {
+    setActiveTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    );
+  }, []);
+
   const createTask = useCallback(
-    (title: string, estimatedMinutes: number, topicId: number, list: TaskListType) => {
+    (
+      title: string,
+      estimatedMinutes: number,
+      topicId: number,
+      list: TaskListType,
+      tagIds: string[] = []
+    ) => {
       const newTask: Task = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         title,
         topicId,
+        tagIds,
         list,
         estimatedMinutes,
         actualMs: 0,
@@ -550,6 +629,10 @@ export function useTomatoStore() {
     },
     []
   );
+
+  const updateTaskTags = useCallback((taskId: string, tagIds: string[]) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, tagIds } : t)));
+  }, []);
 
   const deleteTask = useCallback((taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -619,6 +702,9 @@ export function useTomatoStore() {
       const target = tasks.find((t) => t.id === taskId);
       if (!target) return;
       setActiveTaskId(target.id);
+      if (target.tagIds && target.tagIds.length > 0) {
+        setActiveTagIds(target.tagIds);
+      }
       if (target.list === 'backlog') {
         setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, list: 'today' } : t)));
       }
@@ -646,6 +732,8 @@ export function useTomatoStore() {
     setCurrentTopicId(DEFAULT_TOPIC_ID);
     setStats([]);
     setTasks([]);
+    setTags([]);
+    setActiveTagIds([]);
     setActiveTaskId(null);
     setSettings(DEFAULT_SETTINGS);
     startTimeRef.current = 0;
@@ -679,12 +767,13 @@ export function useTomatoStore() {
         currentTopicId,
         stats,
         tasks,
+        tags,
         settings,
       },
       null,
       2
     );
-  }, [topics, currentTopicId, stats, tasks, settings]);
+  }, [topics, currentTopicId, stats, tasks, tags, settings]);
 
   const importBackupJson = useCallback((raw: string): boolean => {
     try {
@@ -701,6 +790,7 @@ export function useTomatoStore() {
           : restoredTopics[0].id;
       const restoredStats = Array.isArray(parsed.stats) ? parsed.stats : [];
       const restoredTasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+      const restoredTags = Array.isArray(parsed.tags) ? parsed.tags : [];
       const restoredSettings = {
         ...DEFAULT_SETTINGS,
         ...(parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {}),
@@ -715,6 +805,7 @@ export function useTomatoStore() {
       setTopics(restoredTopics);
       setStats(restoredStats);
       setTasks(restoredTasks);
+      setTags(restoredTags);
       setSettings(restoredSettings);
       setCurrentTopicId(restoredId);
       lastModifiedRef.current = restoredModified;
@@ -726,6 +817,7 @@ export function useTomatoStore() {
         currentTopicId: restoredId,
         stats: restoredStats,
         tasks: restoredTasks,
+        tags: restoredTags,
         settings: restoredSettings,
       });
 
@@ -752,6 +844,8 @@ export function useTomatoStore() {
     currentTopic,
     stats,
     tasks,
+    tags,
+    activeTagIds,
     activeTaskId,
     activeTask,
     settings,
@@ -770,7 +864,13 @@ export function useTomatoStore() {
     createTopic,
     updateTopic,
     deleteTopic,
+    createTag,
+    updateTag,
+    deleteTag,
+    toggleActiveTag,
+    setActiveTagIds,
     createTask,
+    updateTaskTags,
     deleteTask,
     moveTask,
     completeTask,
